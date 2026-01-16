@@ -41,6 +41,28 @@ export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) =>
           {startup.description}
         </p>
 
+        {/* Founders Section */}
+        {startup.contactInfo?.founders && startup.contactInfo.founders.length > 0 && (
+          <div className="mb-3 pb-3 border-b border-slate-700/50">
+            <div className="flex items-center gap-2 mb-2">
+              <Users size={14} className="text-emerald-400" />
+              <span className="text-xs text-slate-400 font- medium">Founders</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {startup.contactInfo.founders.slice(0, 2).map((founder, i) => (
+                <span key={i} className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  {founder}
+                </span>
+              ))}
+              {startup.contactInfo.founders.length > 2 && (
+                <span className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  +{startup.contactInfo.founders.length - 2} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="mt-auto space-y-3">
             <div className="flex flex-wrap gap-2">
               <span className="text-xs font-medium px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">

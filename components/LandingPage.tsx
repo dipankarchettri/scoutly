@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowRight, Command } from 'lucide-react';
 import { gsap } from 'gsap';
-import { ChatInterface } from './ChatInterface';
+
 
 interface LandingPageProps {
   onSearch: (domain: string) => void;
@@ -14,12 +14,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mouseRef = useRef({ x: -1000, y: -1000 }); // Initialize off-screen
+  const [popularTags, setPopularTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch('http://localhost:5000/api/stats')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.byIndustry) {
+          // Extract industry names, exclude "Startups" or "Technology" if too generic
+          const tags = data.byIndustry.map((i: any) => i._id);
+          setPopularTags(tags.filter((t: string) => !['Startups', 'Startup', 'AI'].includes(t)));
+        }
+      })
+      .catch(err => console.error("Failed to fetch stats:", err));
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim()) {
-      onSearch(input.trim());
-    }
+    // Allow empty search to view all
+    onSearch(input.trim());
   };
 
   const hasText = input.length > 0;
@@ -252,16 +265,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
                 onChange={(e) => setInput(e.target.value)}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
-                placeholder="What domain are you scouting? (e.g. AI Agents...)"
+                placeholder="What domain are you scouting? (Leave empty for all)"
                 className="flex-1 bg-transparent border-none text-[15px] py-3 text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-0 font-light tracking-wide h-10"
                 autoFocus
               />
               
               <button
                 type="submit"
-                disabled={!input.trim()}
                 className={`h-9 w-9 flex items-center justify-center rounded-xl border transition-all duration-300 ${
-                    input.trim() 
+                    true // Always enabled
                     ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-700' 
                     : 'bg-zinc-900/50 text-zinc-600 border-zinc-800/50 cursor-not-allowed opacity-50'
                 }`}
@@ -280,24 +292,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
                 AI-driven OSINT agent for finding pre-seed & seed stage founders.
              </p>
               <div className="flex flex-wrap justify-center gap-2 items-center">
-              <button
+                 <button
+                   onClick={() => onSearch('')}
+                   className="px-3 py-1.5 text-[11px] font-medium border-emerald-500/20 bg-emerald-900/10 hover:bg-emerald-900/20 backdrop-blur-sm rounded-lg text-emerald-400 hover:text-emerald-300 transition-all duration-300 flex items-center gap-1.5 border"
+                 >
+                   View All
+                 </button>
+                 <button
                    onClick={() => {
-                     onSearch('AI Startups');
-                     onOpenChat?.();
+                     onSearch('AI');
                    }}
                    className="px-3 py-1.5 text-[11px] font-medium border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 transition-all duration-300 flex items-center gap-1.5"
                  >
-                   AI Chat
+                   AI
                  </button>
-                 {['Crypto', 'GenAI', 'SaaS', 'Biotech', 'Marketplaces'].map((tag) => (
-                     <button 
-                       key={tag}
-                       onClick={() => onSearch(tag)}
-                       className="px-3 py-1.5 text-[11px] font-medium border border-white/5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 hover:border-white/10 transition-all duration-300"
-                       >
-                       {tag}
-                     </button>
-                 ))}
+                  {popularTags.length > 0 ? (
+                      popularTags.map((tag) => (
+                        <button 
+                            key={tag}
+                            onClick={() => onSearch(tag)}
+                            className="px-3 py-1.5 text-[11px] font-medium border border-white/5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 hover:border-white/10 transition-all duration-300"
+                        >
+                            {tag}
+                        </button>
+                      ))
+                  ) : (
+                    ['Crypto', 'GenAI', 'SaaS', 'Biotech', 'Marketplaces'].map((tag) => (
+                        <button 
+                            key={tag}
+                            onClick={() => onSearch(tag)}
+                            className="px-3 py-1.5 text-[11px] font-medium border border-white/5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 hover:border-white/10 transition-all duration-300"
+                        >
+                            {tag}
+                        </button>
+                    ))
+                  )}
               </div>
         </div>
       </div>

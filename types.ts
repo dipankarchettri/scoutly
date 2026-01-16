@@ -4,9 +4,20 @@ export interface Startup {
   fundingAmount: string;
   roundType: string;
   dateAnnounced: string;
+  dateAnnouncedISO?: Date;
   description: string;
   investors: string[];
-  founders: string[]; // New field for job seekers
+  teamSize?: string;
+  founders: string[]; // Legacy field
+  contactInfo?: {
+    founders?: string[];
+    email?: string;
+    socials?: {
+      twitter?: string;
+      linkedin?: string;
+    };
+  };
+  industry?: string;
   website?: string;
   location?: string;
   contactEmail?: string;
@@ -28,6 +39,7 @@ export interface FilterConfig {
   domain?: string;
   teamSize?: string;
   foundedYear?: string;
+  sort?: 'date' | 'amount';
 }
 
 export interface SearchState {

@@ -13,12 +13,12 @@ export const StartupModal: React.FC<StartupModalProps> = ({ startup, isOpen, onC
 
   const handleOutreach = () => {
     // Smart Email Draft Generation
-    const founderName = startup.founders[0]?.split(' ')[0] || "Founding Team";
+    const founderName = (startup.founders && startup.founders[0]) ? startup.founders[0].split(' ')[0] : "Founding Team";
     const subject = encodeURIComponent(`Quick question re: ${startup.name} / Partnership`);
     const body = encodeURIComponent(
 `Hi ${founderName},
 
-I saw the recent news about ${startup.name} and what you're building in the ${startup.tags[1] || 'tech'} space. The approach to ${startup.description.toLowerCase().slice(0, 50)}... caught my eye.
+I saw the recent news about ${startup.name} and what you're building in the ${(startup.tags && startup.tags[1]) || 'tech'} space. The approach to ${(startup.description || '').toLowerCase().slice(0, 50)}... caught my eye.
 
 I'm exploring potential synergies in this domain and would love to connect.
 
@@ -57,6 +57,16 @@ Best,
                 <span className="text-[#444] text-xs">
                     {startup.dateAnnounced}
                 </span>
+                {startup.location && (
+                    <span className="text-[#666] text-xs flex items-center gap-1">
+                        📍 {startup.location}
+                    </span>
+                )}
+                {startup.teamSize && (
+                    <span className="text-[#666] text-xs flex items-center gap-1">
+                        👥 {startup.teamSize}
+                    </span>
+                )}
             </div>
           </div>
           <button 
@@ -76,7 +86,7 @@ Best,
                 <p className="text-[#ccc] text-sm leading-6 font-light">
                     {startup.description}
                 </p>
-                {startup.investors.length > 0 && (
+                {startup.investors && startup.investors.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                          {startup.investors.map((inv, i) => (
                              <span key={i} className="text-[10px] text-[#666] px-2 py-1 bg-[#111] border border-[#222] rounded">
@@ -91,8 +101,8 @@ Best,
             <section>
                  <h3 className="text-[10px] font-bold text-[#444] uppercase tracking-wider mb-3">Founders</h3>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                     {startup.founders && startup.founders.length > 0 ? (
-                        startup.founders.map((founder, i) => (
+                     {startup.contactInfo?.founders && startup.contactInfo.founders.length > 0 ? (
+                        startup.contactInfo.founders.map((founder, i) => (
                             <div key={i} className="flex items-center justify-between p-3 rounded border border-[#222] bg-[#0F0F0F] hover:border-[#444] transition-colors group">
                                 <span className="text-sm text-[#eee] font-medium">{founder}</span>
                                 <button 
@@ -104,7 +114,7 @@ Best,
                             </div>
                         ))
                      ) : (
-                        <div className="text-[#444] text-xs italic">Researching founder details...</div>
+                        <div className="text-[#444] text-xs italic">Founder information not yet available</div>
                      )}
                  </div>
             </section>
@@ -139,7 +149,7 @@ Best,
                     </a>
                 )}
                  <div className="ml-auto text-[10px] text-[#444]">
-                    ID: {startup.id.split('-')[1]}
+                    ID: {startup.id ? startup.id.split('-')[1] : 'N/A'}
                 </div>
             </section>
         </div>
