@@ -23,6 +23,12 @@ export const SCRAPER_CONFIGS: ScraperConfig[] = [
     type: 'hackernews',
     enabled: true,
   },
+  {
+    name: 'SERP Discovery (Twitter/LinkedIn)',
+    url: 'https://duckduckgo.com',
+    type: 'serp',
+    enabled: true,
+  },
 
   // --- TIER 2: RSS SOURCES ---
   {
@@ -32,8 +38,8 @@ export const SCRAPER_CONFIGS: ScraperConfig[] = [
     rss: 'https://techcrunch.com/category/startups/feed/',
     enabled: true,
     selectors: {
-      articleLinks: 'a[href*="/20"]', 
-      articleContainer: 'h3, h2' 
+      articleLinks: 'a[href*="/20"]',
+      articleContainer: 'h3, h2'
     }
   },
   {

@@ -1,4 +1,33 @@
-import { StartupData, ValidationResult } from "./mistralService";
+
+// Types moved from mistralService.ts
+export interface StartupData {
+    name: string;
+    description: string;
+    website?: string;
+    dateAnnounced?: string;
+    dateAnnouncedISO?: Date;
+    location?: string;
+    investors?: string[];
+    teamSize?: string;
+    tags?: string[];
+    fundingAmount?: string;
+    roundType?: string;
+    industry?: string;
+    source?: string;
+    sourceUrl?: string;
+    contactInfo?: {
+        founders?: string[];
+        email?: string;
+        socials?: Record<string, string>;
+    };
+}
+
+export interface ValidationResult {
+    isValid: boolean;
+    reason?: string;
+    data?: StartupData;
+}
+
 
 // OpenRouter Configuration
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -21,7 +50,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // OpenRouter API Call
 const callOpenRouterAPI = async (prompt: string, modelName: string = DEFAULT_MODEL, maxRetries: number = 3): Promise<string> => {
     let attempt = 0;
-    
+
     while (attempt < maxRetries) {
         try {
             const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
@@ -48,35 +77,35 @@ const callOpenRouterAPI = async (prompt: string, modelName: string = DEFAULT_MOD
             if (!response.ok) {
                 const errorText = await response.text();
                 console.warn(`OpenRouter API Error (${modelName}): ${response.status} - ${errorText}`);
-                
+
                 if (response.status === 429) {
                     console.log("Rate limit hit, retrying...");
                     attempt++;
                     await delay(2000);
                     continue;
                 }
-                
+
                 throw new Error(`OpenRouter API Error: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
             const aiText = data.choices?.[0]?.message?.content;
-            
+
             if (!aiText) throw new Error("Empty response from OpenRouter");
-            
+
             return aiText;
-            
+
         } catch (error: any) {
             console.error(`OpenRouter API attempt ${attempt + 1}/${maxRetries} failed:`, error.message);
-            
+
             attempt++;
             if (attempt >= maxRetries) break;
-            
+
             const backoffTime = Math.min(1000 * Math.pow(2, attempt), 10000);
             await delay(backoffTime);
         }
     }
-    
+
     throw new Error("All API retries exhausted.");
 };
 
@@ -92,9 +121,10 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
     1. If it is a generic industry news, opinion piece, or "top 10" list, return isValid: false.
     2. If it is about a specific startup getting funded, launched, or acquired, return isValid: true.
     3. If valid, extract the structured data.
-    4. CRITICAL: Extract FOUNDER NAMES and any CONTACT INFO (email, social links) mentioned.
+    4. CRITICAL: Extract FOUNDER NAMES and any CONTACT INFO (email, social links) mentioned. Look for phrases like "started by", "created by", "led by".
     5. CRITICAL: "website" field MUST be the STARTUP'S official website (e.g. "company.com"). DO NOT return the article URL (e.g. "techcrunch.com/..."). If not found, return null.
     6. "dateAnnounced": "YYYY-MM-DD (Use Context Date: ${dateContext || 'Today'} if not explicitly mentioned in text)"
+    7. DESCRIPTION: Write a clear, 2-sentence description of what the company DOES. Do not just say "AI startup". Say "AI startup building computer vision tools for creators".
     
     Return ONLY valid JSON in this format, with no markdown code blocks:
     {
@@ -103,7 +133,7 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
       "data": {
         "name": "Startup Name",
         "dateAnnounced": "YYYY-MM-DD",
-        "description": "Brief description",
+        "description": "High quality description of the product/service",
         "website": "company.com",
         "fundingAmount": "$X Million",
         "roundType": "Seed/Series A",
@@ -120,12 +150,12 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
 
     try {
         const aiText = await callOpenRouterAPI(prompt);
-        
+
         try {
             // Clean content if it has markdown block
             const cleanJson = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
             const result = JSON.parse(cleanJson) as ValidationResult;
-            
+
             // Date Fallback Logic
             if (result.isValid && result.data) {
                 if (!result.data.dateAnnounced || result.data.dateAnnounced === 'Unknown') {
@@ -139,23 +169,33 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
                         result.data.dateAnnounced = new Date().toISOString().split('T')[0];
                     }
                 }
+
+                // Populate ISO Date for sorting
+                if (result.data.dateAnnounced) {
+                    try {
+                        result.data.dateAnnouncedISO = new Date(result.data.dateAnnounced);
+                    } catch (e) {
+                        // Fallback to now if parse fails
+                        result.data.dateAnnouncedISO = new Date();
+                    }
+                }
             }
 
             return result;
 
         } catch (parseError) {
             console.error("Failed to parse AI JSON:", aiText.substring(0, 200));
-            return { 
-                isValid: false, 
-                reason: `JSON Parse Error: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}` 
+            return {
+                isValid: false,
+                reason: `JSON Parse Error: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`
             };
         }
 
     } catch (error) {
         console.error("OpenRouter API call failed:", error);
-        return { 
-            isValid: false, 
-            reason: `API Error: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        return {
+            isValid: false,
+            reason: `API Error: ${error instanceof Error ? error.message : 'Unknown error'}`
         };
     }
 };
@@ -173,10 +213,10 @@ export const extractFounders = async (text: string): Promise<string[]> => {
     Text:
     ${text.substring(0, 30000)}
     `;
-    
+
     try {
         const aiText = await callOpenRouterAPI(prompt);
-        
+
         try {
             const cleanJson = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
             return JSON.parse(cleanJson);
@@ -184,7 +224,7 @@ export const extractFounders = async (text: string): Promise<string[]> => {
             console.error("Failed to parse founders JSON:", aiText.substring(0, 200));
             return [];
         }
-        
+
     } catch (error) {
         console.error("OpenRouter founder extraction failed:", error);
         return [];

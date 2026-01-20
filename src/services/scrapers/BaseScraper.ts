@@ -23,17 +23,28 @@ export abstract class BaseScraper implements IScraper {
             return false;
         }
 
-        // AI Validation
         const result = await validateAndExtractStartup(text, date);
 
         if (result.isValid && result.data) {
-             if (!result.data.name || !result.data.fundingAmount) {
+            if (!result.data.name || !result.data.fundingAmount) {
                 this.logger.log(`[${this.name}] ❌ Rejected: Missing Name or Funding Amount`);
                 return false;
             }
 
+            // Additional validation checks
+            if (result.data.fundingAmount === 'null' || result.data.fundingAmount.toLowerCase().includes('unknown')) {
+                this.logger.log(`[${this.name}] ❌ Rejected: Invalid funding amount (null/unknown)`);
+                return false;
+            }
+
+            // Reject if too many founders (likely extraction error)
+            if (result.data.contactInfo?.founders && result.data.contactInfo.founders.length > 4) {
+                this.logger.log(`[${this.name}] ❌ Rejected: Too many founders (${result.data.contactInfo.founders.length}) - likely extraction error`);
+                return false;
+            }
+
             this.logger.log(`[${this.name}] ✅ FOUND STARTUP: ${result.data.name} (${result.data.fundingAmount})`);
-            
+
             const exists = await Startup.findOne({ $or: [{ name: result.data.name }, { sourceUrl }] });
             if (!exists) {
                 const newStartup = await Startup.create({

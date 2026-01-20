@@ -2,7 +2,7 @@
 export interface ScraperConfig {
   name: string;
   url: string;
-  type: 'rss' | 'producthunt' | 'reddit' | 'hackernews' | 'puppeteer' | 'generic';
+  type: 'rss' | 'producthunt' | 'reddit' | 'hackernews' | 'puppeteer' | 'generic' | 'serp';
   rss?: string;
   enabled: boolean;
   selectors?: {
@@ -22,6 +22,6 @@ export interface IScraper {
   name: string;
   api?: string;
   logger: Console;
-  
+
   scrape(): Promise<ScraperResult>;
 }

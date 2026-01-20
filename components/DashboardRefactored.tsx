@@ -47,7 +47,6 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
   initialDomain,
   onBack,
 }) => {
-  // --- STATE ---
   const [timeframe, setTimeframe] = useState<Timeframe>('week');
   const [sort, setSort] = useState<'date' | 'amount'>('date');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -65,31 +64,27 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [isScraping, setIsScraping] = useState(false);
 
-  // ... (Convex hooks comments removed) ...
-  // State for data
   const [startups, setStartups] = useState<Startup[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch Startups
   useEffect(() => {
-      const load = async () => {
-          setLoading(true);
-          try {
-             // Map dashboard filters to API filters
-             const data = await fetchStartups(timeframe, {
-                 onlyNew: filters.onlyNew,
-                 domain: filters.domain || initialDomain || undefined,
-                 sort // Pass sort to API
-             });
-             setStartups(data);
-          } catch (e) {
-              console.error(e);
-          } finally {
-              setLoading(false);
-          }
-      };
-      load();
+    const load = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchStartups(timeframe, {
+          onlyNew: filters.onlyNew,
+          domain: filters.domain || initialDomain || undefined,
+          sort
+        });
+        setStartups(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, [timeframe, filters.domain, filters.onlyNew, initialDomain, sort]);
 
   // ... (Stats fetch and auto-scrape logic kept same) ...
@@ -243,50 +238,47 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
           {/* Controls Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-2 border-b border-[#333]">
             <div className="flex items-center gap-2">
-                <button
-                    onClick={() => {
-                        setFilters(prev => ({ ...prev, domain: '' }));
-                        setCurrentPage(1);
-                    }}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${
-                        !filters.domain 
-                            ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400' 
-                            : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                    }`}
-                >
-                    <Database size={12} />
-                    All Startups
-                </button>
-                
-                {/* Divider */}
-                <div className="h-4 w-[1px] bg-[#333] mx-1"></div>
+              <button
+                onClick={() => {
+                  setFilters(prev => ({ ...prev, domain: '' }));
+                  setCurrentPage(1);
+                }}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${!filters.domain
+                  ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400'
+                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
+                  }`}
+              >
+                <Database size={12} />
+                All Startups
+              </button>
 
-                 <button
-                    onClick={() => setSort('date')}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${
-                        sort === 'date'
-                            ? 'bg-white text-black border-white font-medium'
-                            : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                    }`}
-                >
-                    <CalendarDays size={12} />
-                    Newest
-                </button>
-                <button
-                    onClick={() => setSort('amount')}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${
-                        sort === 'amount'
-                            ? 'bg-white text-black border-white font-medium'
-                            : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                    }`}
-                >
-                    <Activity size={12} />
-                    Highest Funded
-                </button>
+              {/* Divider */}
+              <div className="h-4 w-[1px] bg-[#333] mx-1"></div>
+
+              <button
+                onClick={() => setSort('date')}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${sort === 'date'
+                  ? 'bg-white text-black border-white font-medium'
+                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
+                  }`}
+              >
+                <CalendarDays size={12} />
+                Newest
+              </button>
+              <button
+                onClick={() => setSort('amount')}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${sort === 'amount'
+                  ? 'bg-white text-black border-white font-medium'
+                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
+                  }`}
+              >
+                <Activity size={12} />
+                Highest Funded
+              </button>
             </div>
 
             <div className="text-[10px] text-[#666] font-mono">
-               Sorted by: <span className="text-emerald-500">{sort === 'date' ? 'Announcement Date' : 'Funding Amount'}</span>
+              Sorted by: <span className="text-emerald-500">{sort === 'date' ? 'Announcement Date' : 'Funding Amount'}</span>
             </div>
           </div>
 
@@ -384,7 +376,14 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
                           <td className="p-3 md:p-4 align-top">
                             <div className="flex items-center gap-2 text-[#999] text-xs">
                               <CalendarDays size={12} className="text-[#555]" />
-                              <span>{new Date(startup.dateAnnounced).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              <span>
+                                {(() => {
+                                  const d = startup.dateAnnouncedISO ? new Date(startup.dateAnnouncedISO) : new Date(startup.dateAnnounced);
+                                  return !isNaN(d.getTime())
+                                    ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : startup.dateAnnounced;
+                                })()}
+                              </span>
                             </div>
                           </td>
                           <td className="p-3 md:p-4 align-top">
@@ -403,12 +402,12 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
                             </p>
                           </td>
                           <td className="p-3 md:p-4 align-middle text-right">
-                            <span 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedStartup(startup); 
-                                }}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-transparent group-hover:border-[#333] group-hover:bg-black text-[#666] transition-all hover:text-white hover:border-emerald-500 cursor-pointer"
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedStartup(startup);
+                              }}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-transparent group-hover:border-[#333] group-hover:bg-black text-[#666] transition-all hover:text-white hover:border-emerald-500 cursor-pointer"
                             >
                               <ArrowRight size={14} />
                             </span>
@@ -439,11 +438,10 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
                         <button
                           key={page}
                           onClick={() => setCurrentPage(page)}
-                          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium ${
-                            currentPage === page
-                              ? 'bg-[#222] text-white border border-[#333]'
-                              : 'text-[#666] hover:bg-[#111]'
-                          }`}
+                          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium ${currentPage === page
+                            ? 'bg-[#222] text-white border border-[#333]'
+                            : 'text-[#666] hover:bg-[#111]'
+                            }`}
                         >
                           {page}
                         </button>
@@ -479,10 +477,9 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
           className={`
             fixed inset-0 z-50 bg-black flex flex-col transition-all duration-300
             md:relative md:inset-auto md:bg-[#050505]/90 md:border-l md:border-[#333]
-            ${
-              isSidebarOpen
-                ? 'translate-x-0 w-full md:w-80 opacity-100'
-                : 'translate-x-full md:translate-x-0 w-full md:w-0 md:opacity-0 md:overflow-hidden'
+            ${isSidebarOpen
+              ? 'translate-x-0 w-full md:w-80 opacity-100'
+              : 'translate-x-full md:translate-x-0 w-full md:w-0 md:opacity-0 md:overflow-hidden'
             }
           `}
         >
@@ -523,16 +520,14 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
                         setTimeframe(step.id);
                         setCurrentPage(1);
                       }}
-                      className={`relative flex items-center px-3 py-2 rounded-md text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-[#1a1a1a] text-white'
-                          : 'text-[#555] hover:text-[#888] hover:bg-[#111]'
-                      }`}
+                      className={`relative flex items-center px-3 py-2 rounded-md text-xs font-medium transition-all ${isActive
+                        ? 'bg-[#1a1a1a] text-white'
+                        : 'text-[#555] hover:text-[#888] hover:bg-[#111]'
+                        }`}
                     >
                       <div
-                        className={`w-1.5 h-1.5 rounded-full mr-3 transition-colors ${
-                          isActive ? 'bg-emerald-500' : 'bg-[#333]'
-                        }`}
+                        className={`w-1.5 h-1.5 rounded-full mr-3 transition-colors ${isActive ? 'bg-emerald-500' : 'bg-[#333]'
+                          }`}
                       />
                       {step.label}
                       {isActive && (
@@ -549,22 +544,21 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
               <label className="text-[10px] font-bold text-[#666] uppercase tracking-wider">
                 Filters
               </label>
-              
+
               {/* Quick Action: View All */}
               <button
                 onClick={() => {
-                   setFilters(prev => ({ ...prev, domain: '' }));
-                   setCurrentPage(1);
-                   if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  setFilters(prev => ({ ...prev, domain: '' }));
+                  setCurrentPage(1);
+                  if (window.innerWidth < 768) setIsSidebarOpen(false);
                 }}
-                className={`w-full py-2 text-xs border rounded-md transition-colors flex items-center justify-center gap-2 ${
-                    !filters.domain || filters.domain === '' 
-                    ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' 
-                    : 'bg-[#111] border-[#333] text-[#888] hover:text-white'
-                }`}
+                className={`w-full py-2 text-xs border rounded-md transition-colors flex items-center justify-center gap-2 ${!filters.domain || filters.domain === ''
+                  ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400'
+                  : 'bg-[#111] border-[#333] text-[#888] hover:text-white'
+                  }`}
               >
-                  <Database size={12} />
-                  View All Startups
+                <Database size={12} />
+                View All Startups
               </button>
 
               <div className="space-y-1 pt-2">

@@ -37,12 +37,12 @@ async function connectDB() {
 
 export async function runGalleryScrape() {
     console.log('🚀 Starting Startups.gallery Scraper (Lazy Mode)...');
-    
+
     // Ensure DB connection if running standalone, but usually server handles it.
     if (mongoose.connection.readyState === 0) {
         await connectDB();
     }
-   
+
     // ... logic ...
 
 
@@ -75,28 +75,28 @@ export async function runGalleryScrape() {
             // For efficiency, we just scroll a bit.
             return [];
         });
-        
+
         // Actually, let's just scrape the list text after scrolling A LOT. 
         // Or check the last extracted date dynamically.
         // Let's scroll 5 times for now as a safe buffer, or until height validation fails.
         // User said "scrape till sept 29 2025".
-        
+
         oldHeight = await page.evaluate('document.body.scrollHeight') as number;
         await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
         await new Promise(r => setTimeout(r, 2000)); // Wait for lazy load
         const newHeight = await page.evaluate('document.body.scrollHeight') as number;
         console.log(`📜 Scrolled to height ${newHeight}...`);
-        
+
         // Extract text to check dates
         const bodyText = await page.evaluate(() => document.body.innerText);
         // Look for dates like "Sep 20, 2025"
         if (bodyText.includes('Sep 20, 2025') || bodyText.includes('Aug 2025')) { // Heuristic check
-             reachedCutoff = true;
+            reachedCutoff = true;
         }
-        
+
         // Failsafe: if height didnt change much
         if (newHeight === oldHeight) break;
-        
+
         // Manual override: User said "slow and lazy". Let's do a fixed number of scrolls to be safe for now
         // assuming standard volume. 
         // 10 scrolls should cover a few months.
@@ -105,7 +105,7 @@ export async function runGalleryScrape() {
     // Now scrape the list
     const bodyText = await page.evaluate(() => document.body.innerText);
     const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    
+
     // Extract actual links to map names to URLs
     const linksMap = await page.evaluate(() => {
         const anchors = Array.from(document.querySelectorAll('a'));
@@ -117,15 +117,15 @@ export async function runGalleryScrape() {
     });
 
     const initialStartups: any[] = [];
-    
+
     // Parse Logic
-    for(let i=0; i<lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
         // Pattern: Name -> Funding · Round -> Date -> Investor
         if (lines[i].includes('$') && lines[i].includes('·')) {
-            const name = lines[i-1];
+            const name = lines[i - 1];
             const fundingLine = lines[i]; // "$25M · Series A"
-            const dateStr = lines[i+1];   // "Jan 13, 2026"
-            const leadInvestor = lines[i+2]; // "Bessemer..."
+            const dateStr = lines[i + 1];   // "Jan 13, 2026"
+            const leadInvestor = lines[i + 2]; // "Bessemer..."
 
             if (!name || !dateStr) continue;
 
@@ -144,18 +144,18 @@ export async function runGalleryScrape() {
             // Find real URL
             // exact match or match where link text contains name
             let matchedLink = linksMap.find(l => l.text === name && l.href.includes('/companies/'));
-            
+
             // If no exact match, try lenient match (e.g. name "Rain" matches link text "Rain")
             // Or if the link href contains the slugified name
             if (!matchedLink) {
                 const slug = slugify(name);
                 matchedLink = linksMap.find(l => l.href.includes(`/companies/${slug}`) || (l.text.includes(name) && l.href.includes('/companies/')));
             }
-            
+
             // Fallback: If still not found, try to find a link that is "near" this text in the DOM?
             // Puppeteer text parsing doesn't give DOM proximity.
             // But usually the name IS the link.
-            
+
             const detailUrl = matchedLink ? matchedLink.href : `https://startups.gallery/companies/${slugify(name)}`;
 
             initialStartups.push({
@@ -186,7 +186,8 @@ export async function runGalleryScrape() {
             name: s.name,
             fundingAmount: s.fundingAmount,
             roundType: s.roundType,
-            dateAnnounced: s.dateAnnounced, // Fixed: use original string per user request for display
+            dateAnnounced: s.dateAnnounced,
+            dateAnnouncedISO: s.dateObj, // Fixed: populate for sorting
             investors: s.investors,
             description: s.name, // Placeholder
             tags: ['Technology'], // Placeholder
@@ -202,7 +203,7 @@ export async function runGalleryScrape() {
 
     // --- PHASE 2: DETAIL SCRAPE ---
     console.log(`\n--- PHASE 2: DETAIL SCRAPE (Lazy Mode) ---\n`);
-    
+
     // Iterate over just-saved startups
     const toEnrich = await Startup.find({ source: 'startups.gallery', confidenceScore: { $lt: 0.9 } });
 
@@ -212,19 +213,19 @@ export async function runGalleryScrape() {
 
         try {
             await page.goto(detailUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-            
+
             // Wait a bit (Lazy/Polite)
-            await new Promise(r => setTimeout(r, 2000)); 
+            await new Promise(r => setTimeout(r, 2000));
 
             // Extract Data
             const data = await page.evaluate(() => {
                 const text = document.body.innerText;
                 const dLines = text.split('\n').filter(l => l.trim().length > 0);
-                
+
                 // Website
                 const links = Array.from(document.querySelectorAll('a'));
                 const webLink = links.find(a => a.innerText.toLowerCase().includes('visit website') || a.innerText.toLowerCase().includes('website'));
-                
+
                 // Industry Extraction Strategy:
                 // Look for elements with 'framer-text' class that are short (likely tags)
                 // The user identified specific framer-text elements containing the industry.
@@ -242,17 +243,17 @@ export async function runGalleryScrape() {
 
             // Local Regex extraction for obvious fields
             const lines = data.textDump.split('\n').map(l => l.trim());
-            
+
             // Team Size: "11-50"
             const teamSize = lines.find(l => /\d+–\d+|\d+-\d+/.test(l) && l.length < 15) || '';
-            
+
             // Description
             const description = lines.find(l => l.length > 60 && !l.includes('Cookie')) || s.name;
 
             // Industry selection from potential tags
             // We prioritize known industries if found, otherwise take the first "Tag-like" element that isn't the name or location
             const knownIndustries = ['Biotech', 'Fintech', 'Software', 'Hardware', 'AI', 'Crypto', 'Healthcare', 'Consumer', 'B2B', 'Enterprise', 'Security', 'Energy', 'Robotics', 'Space', 'Education'];
-            
+
             let industry = 'Technology';
             // 1. Check strict match
             const strictMatch = data.potentialTags.find(t => knownIndustries.includes(t));
