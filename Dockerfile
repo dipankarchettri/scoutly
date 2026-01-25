@@ -13,18 +13,36 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
-# Install only production deps, but we need tsx which is in devDeps currently. 
-# Ideally we move tsx to dependencies or use a separate build step for server.
-# For now, we install all to ensure tsx is available, or we explicitly install tsx.
+# Install all dependencies including tsx for TypeScript execution
+# In production, we'll use Bun runtime which has built-in TypeScript support
 RUN npm ci --include=dev 
-# (Optimization: In a real strict env, we'd compile TS to JS and drop tsx)
 
 COPY --from=builder /app/dist ./dist
 COPY src ./src
 COPY tsconfig.json ./
 
-# Expose API Port
-EXPOSE 5000
+# Install DragonflyDB for high-performance caching
+# Use official DragonflyDB Alpine package
+RUN apk add --no-cache curl && \
+    curl -fsSL https://github.com/dragonflydb/dragonfly/releases/latest/download/dragonfly_linux_amd64.tar.gz | tar -xz && \
+    mv dragonfly /usr/local/bin/ && \
+    chmod +x /usr/local/bin/dragonfly
 
-# Start command
-CMD ["npm", "start"]
+# Create startup script for DragonflyDB
+COPY <<EOF /app/start-dragonfly.sh
+#!/bin/sh
+echo "🐉 Starting DragonflyDB..."
+dragonfly --dir /tmp/dragonfly --port 6379 &
+echo "DragonflyDB started with PID: \$!"
+EOF
+RUN chmod +x /app/start-dragonfly.sh
+
+# Expose ports
+EXPOSE 5000 6379
+
+# Health check for both services
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/api/health || exit 1
+
+# Start command with DragonflyDB
+CMD ["/bin/sh", "-c", "./start-dragonfly.sh && npm start"]

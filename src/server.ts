@@ -60,16 +60,55 @@ app.post('/api/scrapers/run', async (req, res) => {
     Logger.info(`Received agentic scrape request for: ${source}`);
 
     try {
-        // Offload to Queue
-        await scrapeQueue.add('scrape-all', { source });
-        res.json({ message: `Queued scraping job for ${source || 'all'}` });
-        Logger.info("Job successfully queued.");
+        // Use BullMQ Pro features - group related scraping jobs
+        const options = source ? {
+            // Group jobs by source to prevent race conditions
+            groupKey: `scrape-${source}`,
+            // Prioritize certain sources
+            priority: source === 'gallery' ? 10 : 5,
+        } : {};
+
+        await scrapeQueue.add('scrape-all', { source }, options);
+        res.json({ message: `Queued scraping job for ${source || 'all'} with BullMQ Pro optimizations` });
+        Logger.info(`Job successfully queued with options:`, options);
     } catch (err) {
         Logger.error("Failed to queue job:", err);
         res.status(500).json({ error: "Failed to queue job" });
     }
 });
 
+
+// Health check endpoint for Docker health checks
+app.get('/api/health', async (req, res) => {
+    try {
+        // Check database connection
+        const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+        
+        // Check Redis/DragonflyDB connection
+        const redisStatus = connection.status || 'connected';
+        
+        res.json({
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            services: {
+                database: dbStatus,
+                cache: redisStatus,
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+            },
+            performance: {
+                runtime: process.env.NODE_RUNTIME || 'node',
+                cacheProvider: process.env.CACHE_PROVIDER || 'dragonfly'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'unhealthy',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
 
 app.get('/api/startups', async (req, res, next) => {
     try {

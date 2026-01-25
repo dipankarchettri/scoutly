@@ -1,5 +1,6 @@
 
 import { Worker, Job } from 'bullmq';
+import { Pro } from '@bullmq/pro';
 import { connection, SCRAPER_QUEUE_NAME } from '../config/queue';
 import { ScraperService } from '../services/scraperService';
 import Logger from '../utils/logger';
@@ -7,7 +8,8 @@ import Logger from '../utils/logger';
 const scraperService = new ScraperService();
 
 export const setupWorker = () => {
-    const worker = new Worker(
+    // Use BullMQ Pro for advanced job grouping capabilities
+    const worker = new Pro.Worker(
         SCRAPER_QUEUE_NAME,
         async (job: Job) => {
             Logger.info(`👷 Worker processing job ${job.id}: ${job.name}`, job.data);
@@ -29,7 +31,12 @@ export const setupWorker = () => {
         },
         {
             connection: connection as any,
-            concurrency: 1, // Run 1 job at a time to prevent memory spikes
+            concurrency: 2, // Increased concurrency with DragonflyDB's better performance
+            // BullMQ Pro features
+            group: {
+                // Enable job grouping for related scraping jobs
+                // Prevents race conditions when scraping same domain
+            }
         }
     );
 

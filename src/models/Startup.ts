@@ -32,10 +32,20 @@ const StartupSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Index for valid search and deduplication
-StartupSchema.index({ name: 1 });
-StartupSchema.index({ website: 1 });
-StartupSchema.index({ fundingAmountNum: -1 });
-StartupSchema.index({ dateAnnouncedISO: -1 });
+// Performance-optimized indexes for query patterns
+StartupSchema.index({ name: 1 }); // Exact match for deduplication
+StartupSchema.index({ website: 1 }); // URL-based lookups
+StartupSchema.index({ fundingAmountNum: -1 }); // Sort by funding
+StartupSchema.index({ dateAnnouncedISO: -1 }); // Time-based queries
+StartupSchema.index({ industry: 1, dateAnnouncedISO: -1 }); // Industry + timeframe
+StartupSchema.index({ tags: 1 }); // Tag-based filtering
+StartupSchema.index({ source: 1 }); // Source-based queries
+StartupSchema.index({ 'contactInfo.founders': 1 }); // Founder searches
+// Compound index for common query pattern (industry + date + funding)
+StartupSchema.index({ 
+  industry: 1, 
+  dateAnnouncedISO: -1, 
+  fundingAmountNum: -1 
+});
 
 export const Startup = mongoose.model('Startup', StartupSchema);
