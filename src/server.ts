@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Startup } from './models/Startup';
 import Logger from './utils/logger';
-import { scrapeQueue } from './config/queue';
+import { scrapeQueue, connection } from './config/queue';
 import { setupWorker } from './workers/scraperWorker';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -42,7 +42,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 mongoose.connect(MONGO_URI)
-    .then(() => Logger.info('✅ Connected to MongoDB Atlas'))
+    .then(() => Logger.info('✅ Connected to MongoDB'))
     .catch(err => Logger.error('❌ MongoDB connection error:', err));
 
 

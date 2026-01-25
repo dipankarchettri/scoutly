@@ -3,19 +3,20 @@ import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import Logger from '../utils/logger';
 
-// DragonflyDB is Redis-compatible, uses same connection logic
+// Use Redis/DragonflyDB based on availability
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
+const CACHE_PROVIDER = process.env.CACHE_PROVIDER || 'redis';
 
-// DragonflyDB optimizations: multi-threaded, better memory efficiency
+// Redis/DragonflyDB compatible connection with optimizations
 const connection = new Redis({
     host: REDIS_HOST,
     port: REDIS_PORT,
     maxRetriesPerRequest: null, // Critical for BullMQ
-    // DragonflyDB-specific optimizations
+    // Universal optimizations (work with both Redis and DragonflyDB)
     enableAutoPipelining: true, // Better throughput
     lazyConnect: true, // Faster startup
-    // Performance tuning for Dragonfly
+    // Performance tuning
     connectTimeout: 30000,
     commandTimeout: 5000,
 });
