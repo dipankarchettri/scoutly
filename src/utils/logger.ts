@@ -60,3 +60,4 @@ const Logger = winston.createLogger({
 });
 
 export default Logger;
+export { Logger };

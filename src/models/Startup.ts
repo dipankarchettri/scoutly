@@ -1,35 +1,75 @@
 import mongoose from 'mongoose';
 
+// Enhanced startup model for Phase 2 multi-source architecture
 const StartupSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  // Core identity
+  name: { type: String, required: true, index: true },
+  canonicalName: { type: String, required: true, index: true },
   description: { type: String, required: true },
   website: { type: String },
-  dateAnnounced: { type: String },
-  dateAnnouncedISO: { type: Date }, // For proper sorting
+  logo: { type: String },
   location: { type: String },
-  investors: [String], // Backed by...
-  teamSize: { type: String }, // e.g. 11-50
-  tags: [String],
+  
+  // Funding information
   fundingAmount: { type: String },
   fundingAmountNum: { type: Number }, // For sorting
-  roundType: { type: String }, // e.g. Pre-Seed, Seed, Series A
-  industry: { type: String }, // Classification (e.g. AI, Fintech)
-  source: { type: String },
-  sourceUrl: { type: String },
+  roundType: { type: String },
+  dateAnnounced: { type: String },
+  dateAnnouncedISO: { type: Date }, // For proper sorting
+  
+  // Industry and classification
+  industry: { type: String },
+  tags: [String],
+  
+  // Enhanced source tracking
+  sources: [{
+    sourceName: { type: String, required: true },
+    sourceUrl: { type: String, required: true },
+    extractedAt: { type: Date, required: true },
+    confidence: { type: Number, required: true, min: 0, max: 1 },
+    sourceType: { type: String, required: true, enum: ['api', 'rss', 'scraper', 'government'] },
+    notes: String // Additional notes about the source
+  }],
+  
+  // Contact information (enhanced)
   contactInfo: {
     founders: [String],
-    email: { type: String },
+    emails: [String], // Multiple validated emails
+    primaryEmail: String, // Most reliable email
     socials: {
-        type: {
-            twitter: { type: String },
-            linkedin: { type: String }
-        },
-        default: {}
-    }
+      twitter: String,
+      linkedin: String,
+      crunchbase: String,
+      github: String,
+      website: String
+    },
+    lastContactUpdate: Date // When contact info was last verified
   },
-  confidenceScore: { type: Number },
+  
+  // Validation and confidence
+  confidenceScore: { type: Number, min: 0, max: 1, default: 0.3 },
+  validationStatus: { 
+    type: String, 
+    enum: ['pending', 'validated', 'rejected', 'enriched', 'archived'], 
+    default: 'pending' 
+  },
+  sourceCount: { type: Number, default: 1 },
+  lastValidatedAt: Date,
+  validationHistory: [{
+    recordId: { type: mongoose.Schema.Types.ObjectId, ref: 'ValidationHistory' },
+    previousScore: Number,
+    newScore: Number,
+    reason: String,
+    timestamp: { type: Date, default: Date.now }
+  }],
+  
+  // Temporal tracking
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  firstSeenAt: Date, // When first discovered across any source
+  lastActivityAt: Date // Last funding round, hiring, etc.
+}, { 
+  timestamps: true 
 });
 
 // Performance-optimized indexes for query patterns

@@ -32,11 +32,25 @@ export interface ValidationResult {
 // OpenRouter Configuration
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-// Default model - using a cost-effective option  
-// Options: "meta-llama/llama-3.1-8b-instruct" (cheap ~$0.000001/request), "anthropic/claude-3-haiku" (balanced), "openai/gpt-3.5-turbo" (powerful)
-const DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct"; // Ultra cheap!
+// Ollama Configuration (FREE - Local LLM)
+const OLLAMA_BASE_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
 
-// Get API key (lazy to allow dotenv to load first)
+// Default model for OpenRouter (ultra cheap fallback)
+const DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct"; // ~$0.000001/request
+
+// LLM Provider preference
+type LLMProvider = 'ollama' | 'openrouter';
+const getLLMProvider = (): LLMProvider => {
+    // Prefer Ollama if URL is configured (free)
+    if (process.env.OLLAMA_URL) return 'ollama';
+    // Fallback to OpenRouter if API key exists
+    if (process.env.OPENROUTER_API_KEY) return 'openrouter';
+    // Default to Ollama (might not be running, but it's free)
+    return 'ollama';
+};
+
+// Get OpenRouter API key (lazy to allow dotenv to load first)
 const getApiKey = () => {
     const key = process.env.OPENROUTER_API_KEY;
     if (!key) throw new Error("OPENROUTER_API_KEY not found in environment variables");
@@ -45,6 +59,41 @@ const getApiKey = () => {
 
 // Simple delay helper
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Ollama API Call (FREE - Local)
+const callOllamaAPI = async (prompt: string, maxRetries: number = 2): Promise<string> => {
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        try {
+            const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    model: OLLAMA_MODEL,
+                    prompt,
+                    stream: false,
+                    options: { temperature: 0.2 }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Ollama API Error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.response || "";
+
+        } catch (error: any) {
+            console.warn(`Ollama attempt ${attempt + 1}/${maxRetries} failed:`, error.message);
+            attempt++;
+            if (attempt >= maxRetries) break;
+            await delay(1000);
+        }
+    }
+
+    throw new Error("Ollama API failed - ensure Ollama is running");
+};
 
 
 // OpenRouter API Call

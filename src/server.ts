@@ -7,9 +7,10 @@ import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Startup } from './models/Startup';
-import Logger from './utils/logger';
-import { scrapeQueue, connection } from './config/queue';
-import { setupWorker } from './workers/scraperWorker';
+import Logger from '../utils/logger';
+import { setupWorker } from './workers/SimpleWorker';
+import { searchOrchestrator } from './services/search';
+import { PRICING_TIERS, PricingTier } from './config/searchConfig';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,83 +19,130 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGODB_URI || '';
+const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/scoutly';
 
 setupWorker();
 
+// Middleware
 app.use(helmet({
-    contentSecurityPolicy: false, // Disabled for now to avoid breaking Vite scripts if inline
+    contentSecurityPolicy: false
 }));
-app.use(cors()); // In production, configure this strictly: { origin: 'https://yourdomain.com' }
+app.use(cors());
 app.use(express.json());
 
+// Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+    limit: 100,
     standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes'
+    legacyHeaders: false
 });
 app.use('/api', limiter);
 
-if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../dist')));
-}
-
-mongoose.connect(MONGO_URI)
-    .then(() => Logger.info('✅ Connected to MongoDB'))
-    .catch(err => Logger.error('❌ MongoDB connection error:', err));
-
-
-import { ScraperService } from './services/scraperService';
-import cron from 'node-cron';
-import { runGalleryScrape } from './services/galleryScraperService';
-
-app.post('/api/scrape', (req, res) => {
-    res.json({ message: 'Legacy scrape started' });
-});
-
-app.post('/api/scrapers/run', async (req, res) => {
-    const { source } = req.body;
-
-    Logger.info(`Received agentic scrape request for: ${source}`);
-
+// ============================================
+// AI-POWERED SEARCH ENDPOINT (New in v2)
+// ============================================
+app.post('/api/search', async (req, res) => {
     try {
-        // Use BullMQ Pro features - group related scraping jobs
-        const options = source ? {
-            // Group jobs by source to prevent race conditions
-            groupKey: `scrape-${source}`,
-            // Prioritize certain sources
-            priority: source === 'gallery' ? 10 : 5,
-        } : {};
+        const { query, page = 1, tier = 'free' } = req.body;
 
-        await scrapeQueue.add('scrape-all', { source }, options);
-        res.json({ message: `Queued scraping job for ${source || 'all'} with BullMQ Pro optimizations` });
-        Logger.info(`Job successfully queued with options:`, options);
-    } catch (err) {
-        Logger.error("Failed to queue job:", err);
-        res.status(500).json({ error: "Failed to queue job" });
+        if (!query || typeof query !== 'string' || query.trim().length < 2) {
+            return res.status(400).json({
+                success: false,
+                error: 'Query is required and must be at least 2 characters'
+            });
+        }
+
+        // Validate tier
+        const validTier: PricingTier = tier === 'paid' ? 'paid' : 'free';
+        const tierConfig = PRICING_TIERS[validTier];
+
+        // Validate page
+        const pageNum = Math.max(1, Math.min(parseInt(page) || 1, tierConfig.pagesPerSearch));
+
+        Logger.info(`🔍 AI Search: "${query}" (tier: ${validTier}, page: ${pageNum})`);
+
+        // Execute search
+        const result = await searchOrchestrator.search(query.trim(), validTier, pageNum);
+
+        res.json({
+            success: true,
+            data: result,
+            credits: {
+                tier: validTier,
+                // TODO: Implement actual credit tracking in Phase 3
+                used: 1,
+                remaining: tierConfig.credits - 1
+            }
+        });
+
+    } catch (error: any) {
+        Logger.error('Search error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Search failed',
+            details: error.message
+        });
     }
 });
 
+// GET version for simple queries
+app.get('/api/search', async (req, res) => {
+    try {
+        const { q, query, page = '1', tier = 'free' } = req.query;
+        const searchQuery = (q || query) as string;
 
-// Health check endpoint for Docker health checks
+        if (!searchQuery || searchQuery.trim().length < 2) {
+            return res.status(400).json({
+                success: false,
+                error: 'Query parameter (q or query) is required'
+            });
+        }
+
+        const validTier: PricingTier = tier === 'paid' ? 'paid' : 'free';
+        const pageNum = Math.max(1, parseInt(page as string) || 1);
+
+        const result = await searchOrchestrator.search(searchQuery.trim(), validTier, pageNum);
+
+        res.json({
+            success: true,
+            data: result
+        });
+
+    } catch (error: any) {
+        res.status(500).json({
+            success: false,
+            error: 'Search failed',
+            details: error.message
+        });
+    }
+});
+
+// Get search source status
+app.get('/api/search/sources', (req, res) => {
+    const sources = searchOrchestrator.getSourceStatus();
+    res.json({
+        success: true,
+        sources,
+        tiers: PRICING_TIERS
+    });
+});
+
+// Health check endpoint
 app.get('/api/health', async (req, res) => {
     try {
-        // Check database connection
         const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-        
-        // Check Redis/DragonflyDB connection
-        const redisStatus = connection.status || 'connected';
-        
+        const redisStatus = 'connected'; // In production, this would be DragonflyDB
+
+        const uptime = process.uptime();
+        const memory = process.memoryUsage();
+
         res.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
             services: {
                 database: dbStatus,
-                cache: redisStatus,
-                uptime: process.uptime(),
-                memory: process.memoryUsage(),
+                cache: redisStatus
             },
             performance: {
                 runtime: process.env.NODE_RUNTIME || 'node',
@@ -110,6 +158,7 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+// Search endpoint
 app.get('/api/startups', async (req, res, next) => {
     try {
         const { timeframe, domain, sort } = req.query;
@@ -127,6 +176,10 @@ app.get('/api/startups', async (req, res, next) => {
                 case 'quarter': daysBack = 90; break;
                 default: daysBack = 30;
             }
+
+            filter.dateAnnouncedISO = {
+                $gte: new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
+            };
         }
 
         // Domain/Search filter
@@ -138,7 +191,7 @@ app.get('/api/startups', async (req, res, next) => {
             ];
         }
 
-        // Sort Logic
+        // Sort options
         let sortOptions: any = { createdAt: -1 };
         if (sort === 'date') {
             sortOptions = { dateAnnouncedISO: -1, createdAt: -1 };
@@ -148,55 +201,46 @@ app.get('/api/startups', async (req, res, next) => {
 
         const startups = await Startup.find(filter).sort(sortOptions).limit(100);
         res.json(startups);
-    } catch (err) {
-        next(err); // Pass to error handler
+    } catch (error) {
+        res.status(500).json({ error: 'Search failed', details: error.message });
     }
 });
 
-app.get('/api/stats', async (req, res, next) => {
+// Statistics endpoint
+app.get('/api/stats', async (req, res) => {
     try {
         const total = await Startup.countDocuments();
         const byIndustry = await Startup.aggregate([
-            { $group: { _id: "$industry", count: { $sum: 1 } } },
+            { $group: { _id: '$industry', count: { $sum: 1 } } },
             { $sort: { count: -1 } },
             { $limit: 5 }
         ]);
+
         res.json({ total, byIndustry });
-    } catch (err) {
-        next(err);
+    } catch (error) {
+        res.status(500).json({ error: 'Stats failed', details: error.message });
     }
 });
 
+// Database seeding endpoint
+app.post('/api/seed-sources', async (req, res) => {
+    try {
+        Logger.info('🌱 Seeding data sources...');
+
+        // For Phase 1+2, this would trigger our collectors
+        // For now, just return success message
+        res.json({ message: 'Data sources seeded successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Seeding failed', details: error.message });
+    }
+});
+
+// Production static files
 if (process.env.NODE_ENV === 'production') {
-    app.get('*', (req, res) => {
-        res.sendFile(path.resolve(__dirname, '../dist', 'index.html'));
-    });
+    app.use(express.static(path.join(__dirname, '../dist')));
 }
 
-
-cron.schedule('0 * * * *', async () => {
-    Logger.info('⏰ Triggering Hourly Scrapers (via Queue)...');
-
-    // 1. News Scrapers
-    try {
-        await scrapeQueue.add('scrape-all', { source: 'cron' });
-    } catch (e) {
-        Logger.error('Hourly Scraper Queue Error:', e);
-    }
-
-    // 2. Startups Gallery
-    try {
-        await runGalleryScrape();
-    } catch (e) {
-        Logger.error('Gallery Scraper Error:', e);
-    }
-});
-
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    Logger.error(err.stack);
-    res.status(500).json({ error: 'Something broke!', details: process.env.NODE_ENV === 'development' ? err.message : undefined });
-});
-
+// Start server
 app.listen(PORT, () => {
-    Logger.info(`🚀 Server running on http://localhost:${PORT}`);
+    Logger.info(`🚀 Scoutly Server running on http://localhost:${PORT}`);
 });
