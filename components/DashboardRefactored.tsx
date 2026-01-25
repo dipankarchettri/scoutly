@@ -1,36 +1,54 @@
 /**
- * Refactored Dashboard using Convex instead of Gemini
+ * Refactored Dashboard using Scoutly v2 Search API
  * Replace Dashboard.tsx with this version
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { fetchStartups, fetchStats } from '../src/services/api';
-import { Startup, SearchState, Timeframe, FilterConfig } from '../types';
+import { fetchStartups, searchStartups } from '../src/services/api';
+import { Startup, Timeframe, FilterConfig, SearchResponse } from '../types';
+import { StartupCard } from './StartupCard';
 import { StartupModal } from './StartupModal';
+
+// UI Components (Icons)
 import {
-  Loader2,
-  RefreshCcw,
-  ArrowRight,
-  Command,
-  CalendarDays,
+  ArrowLeft,
+  Search as SearchIcon,
+  Zap,
+  Filter,
+  Loader,
   ChevronLeft,
   ChevronRight,
-  SlidersHorizontal,
-  PanelRightClose,
-  PanelRightOpen,
-  Search,
-  Filter,
-  Terminal,
-  Clock,
-  Activity,
-  X,
   Database,
+  Activity,
+  Clock,
+  LayoutGrid,
+  X
 } from 'lucide-react';
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 10;
 
-interface DashboardProps {
-  initialDomain?: string;
+// Credit Display Widget
+const CreditWidget = ({ credits }: { credits?: SearchResponse['credits'] }) => {
+  if (!credits) return null;
+
+  const isLow = credits.remaining <= 1;
+
+  return (
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium backdrop-blur-md ${isLow ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+      }`}>
+      <Zap className="w-3 h-3" />
+      <span>{credits.remaining} / 2 Credits Free</span>
+      {credits.tier === 'free' && (
+        <button className="ml-2 hover:underline text-[10px] uppercase font-bold tracking-wider opacity-80 hover:opacity-100">
+          Upgrade
+        </button>
+      )}
+    </div>
+  );
+};
+
+export interface DashboardProps {
+  initialDomain?: string | null;
   onBack: () => void;
 }
 
@@ -43,564 +61,266 @@ const TIMELINE_STEPS: { id: Timeframe; label: string }[] = [
   { id: 'quarter', label: 'Quarter' },
 ];
 
+// Settings Modal for BYOK
+const SettingsModal = ({
+  isOpen,
+  onClose,
+  apiKey,
+  onSave
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  apiKey: string;
+  onSave: (key: string) => void;
+}) => {
+  const [key, setKey] = useState(apiKey);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-[#111] border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-white">Settings</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              OpenRouter API Key (BYOK)
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              Use your own LLM API key for unlimited extraction.
+            </p>
+            <div className="relative">
+              <input
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="sk-or-..."
+                className="w-full bg-black/50 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-sm focus:outline-none focus:border-purple-500 text-white placeholder:text-gray-700"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={() => { onSave(key); onClose(); }}
+            className="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 rounded-lg transition-colors"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const DashboardRefactored: React.FC<DashboardProps> = ({
   initialDomain,
   onBack,
 }) => {
-  const [timeframe, setTimeframe] = useState<Timeframe>('week');
-  const [sort, setSort] = useState<'date' | 'amount'>('date');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  const [filters, setFilters] = useState<FilterConfig>({
-    onlyNew: false,
-    domain: initialDomain || '',
-    minValuation: '',
-    maxValuation: '',
-    teamSize: 'Any',
-    foundedYear: '',
-  });
-
-  const [selectedStartup, setSelectedStartup] = useState<Startup | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isScraping, setIsScraping] = useState(false);
-
-  const [startups, setStartups] = useState<Startup[]>([]);
-  const [stats, setStats] = useState<any>(null);
+  // State
+  const [query, setQuery] = useState(initialDomain || '');
+  const [results, setResults] = useState<Startup[]>([]);
+  const [stats, setStats] = useState({ totalCompanies: 0, totalPages: 0, latency: 0 });
+  const [credits, setCredits] = useState<SearchResponse['credits']>();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [selectedStartup, setSelectedStartup] = useState<Startup | null>(null);
 
+  // BYOK State
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('scoutly_llm_key') || '');
+
+  const handleSaveKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('scoutly_llm_key', key);
+  };
+
+  // Initial Search
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const data = await fetchStartups(timeframe, {
-          onlyNew: filters.onlyNew,
-          domain: filters.domain || initialDomain || undefined,
-          sort
+    if (initialDomain) {
+      handleSearch(initialDomain, 1);
+    }
+  }, [initialDomain]);
+
+  // Search Handler
+  const handleSearch = async (searchQuery: string, pageNum: number = 1) => {
+    if (!searchQuery.trim()) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await searchStartups(searchQuery, pageNum, 'free', apiKey);
+
+      if (response.success && response.data) {
+        // Map API data to Startup type
+        const mappedStartups: Startup[] = response.data.companies.map((c, index) => ({
+          id: `search-${index}-${Date.now()}`,
+          name: c.name,
+          fundingAmount: c.fundingAmount || 'Undisclosed',
+          roundType: c.roundType || 'Unknown',
+          dateAnnounced: c.dateAnnounced || new Date().toISOString(),
+          description: c.description,
+          investors: c.investors || [],
+          founders: c.founders || [],
+          industry: c.industry,
+          website: c.website,
+          location: c.location,
+          sources: [c.source],
+          tags: c.tags || [],
+          confidence: c.confidence,
+          sourceUrl: c.sourceUrl,
+          socialLinks: {}
+        }));
+
+        setResults(mappedStartups);
+        setStats({
+          totalCompanies: response.data.pagination.totalCompanies,
+          totalPages: response.data.pagination.totalPages,
+          latency: response.data.meta.totalLatencyMs
         });
-        setStartups(data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+        setCredits(response.credits);
+        setPage(pageNum);
       }
-    };
-    load();
-  }, [timeframe, filters.domain, filters.onlyNew, initialDomain, sort]);
-
-  // ... (Stats fetch and auto-scrape logic kept same) ...
-
-  // ... (Derived state for filtering locally if needed, but we rely on API now for sort) ...
-  const filteredData = useMemo(() => {
-    if (!startups) return [];
-    let filtered = [...startups];
-
-    // Filter by domain/tags
-    if (filters.domain) {
-      filtered = filtered.filter(
-        s =>
-          s.name.toLowerCase().includes(filters.domain.toLowerCase()) ||
-          s.description.toLowerCase().includes(filters.domain.toLowerCase()) ||
-          s.tags.some(t =>
-            t.toLowerCase().includes(filters.domain.toLowerCase())
-          )
-      );
-    }
-
-    // REMOVED: Client-side sorting was overriding API sorting.
-    // filtered.sort((a, b) => ...); 
-
-    return filtered;
-  }, [startups, filters.domain]);
-
-
-  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredData.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredData, currentPage]);
-
-  // --- HANDLERS ---
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(p => p + 1);
+    } catch (err: any) {
+      setError(err.message || 'Search failed');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(p => p - 1);
-    }
-  };
-
-  const handleRunScan = () => {
-    // Reset to first page when filter changes
-    setCurrentPage(1);
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
-    }
-  };
-
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisible = 5;
-    let start = Math.max(1, currentPage - 2);
-    let end = Math.min(totalPages, start + maxVisible - 1);
-    if (end - start < maxVisible - 1) {
-      start = Math.max(1, end - maxVisible + 1);
-    }
-    for (let i = start; i <= end; i++) pages.push(i);
-    return pages;
-  };
-
-  // --- RENDER ---
   return (
-    <div className="min-h-screen bg-transparent text-white selection:bg-white selection:text-black font-sans flex flex-col">
-      {/* Navbar */}
-      <nav className="border-b border-[#333] bg-black/60 backdrop-blur-md sticky top-0 z-40 h-14 flex-none">
-        <div className="w-full px-4 md:px-6 h-full flex items-center justify-between">
-          <div
-            className="flex items-end gap-2 cursor-pointer group select-none"
-            onClick={onBack}
-            title="Back to search"
-          >
-            <h1 className="text-sm font-bold tracking-tight text-white group-hover:text-emerald-400 transition-colors">
-              scoutly
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-purple-500/30">
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        apiKey={apiKey}
+        onSave={handleSaveKey}
+      />
+
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-black/80 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onBack}
+              className="p-2 hover:bg-white/5 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-400" />
+            </button>
+            <h1 className="text-lg font-semibold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Scoutly <span className="text-xs font-mono text-gray-500 ml-1">v2.0</span>
             </h1>
-            <span className="text-[10px] text-[#666] mb-[2px] font-medium group-hover:text-[#888]">
-              by dan
-            </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded border border-[#333] bg-[#111]">
-              {isScraping ? (
-                <>
-                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></div>
-                  <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider">
-                    Scraping...
-                  </span>
-                </>
-              ) : startups !== undefined ? (
-                <>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                  <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider">
-                    {startups.length} startups
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Loader2 size={12} className="animate-spin text-[#666]" />
-                  <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider">
-                    Loading...
-                  </span>
-                </>
-              )}
-            </div>
+          <div className="flex items-center gap-4">
             <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-[#111] rounded-md text-[#666] transition-colors border border-transparent hover:border-[#333] relative z-50"
+              onClick={() => setShowSettings(true)}
+              className="p-2 hover:bg-white/5 rounded-full transition-colors relative"
+              title="Settings (BYOK)"
             >
-              {isSidebarOpen ? (
-                <PanelRightClose size={18} />
-              ) : (
-                <PanelRightOpen size={18} />
-              )}
+              <Database className={`w-5 h-5 ${apiKey ? 'text-purple-400' : 'text-gray-400'}`} />
+              {apiKey && <span className="absolute top-1 right-1 w-2 h-2 bg-purple-500 rounded-full"></span>}
             </button>
+            <CreditWidget credits={credits} />
+            <div className="h-8 w-[1px] bg-white/10" />
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleSearch(query, 1); }}
+              className="relative group"
+            >
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-purple-400 transition-colors" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="e.g. AI startups seed funding..."
+                className="bg-white/5 border border-white/10 rounded-full py-1.5 pl-9 pr-4 text-sm w-64 focus:w-80 transition-all focus:outline-none focus:border-purple-500/50 focus:bg-white/10 placeholder:text-gray-600"
+              />
+            </form>
           </div>
         </div>
-      </nav>
+      </header>
 
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Main Content */}
-        <main
-          className={`flex-1 overflow-y-auto p-3 md:p-6 transition-all duration-300`}
-        >
-          {/* Header */}
-          <div className="mb-6 md:mb-8 space-y-3 md:space-y-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-white">
-                  Outreach Intelligence
-                </h2>
-                {filters.domain && (
-                  <span className="px-2 py-0.5 md:px-3 md:py-1 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-900 text-xs md:text-sm font-medium">
-                    {filters.domain}
-                  </span>
-                )}
-              </div>
-              <p className="text-[#888] text-xs md:text-sm max-w-2xl leading-relaxed">
-                Real startup data from Y Combinator, Hacker News, TechCrunch, and
-                more. Updated hourly.
-              </p>
+      {/* Content */}
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-64 space-y-4">
+            <div className="relative">
+              <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full" />
+              <Loader className="w-8 h-8 text-purple-400 animate-spin relative z-10" />
             </div>
+            <p className="text-gray-400 text-sm animate-pulse">Scouting the web for startups...</p>
           </div>
-
-          {/* Controls Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-2 border-b border-[#333]">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setFilters(prev => ({ ...prev, domain: '' }));
-                  setCurrentPage(1);
-                }}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${!filters.domain
-                  ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400'
-                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                  }`}
-              >
-                <Database size={12} />
-                All Startups
-              </button>
-
-              {/* Divider */}
-              <div className="h-4 w-[1px] bg-[#333] mx-1"></div>
-
-              <button
-                onClick={() => setSort('date')}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${sort === 'date'
-                  ? 'bg-white text-black border-white font-medium'
-                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                  }`}
-              >
-                <CalendarDays size={12} />
-                Newest
-              </button>
-              <button
-                onClick={() => setSort('amount')}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${sort === 'amount'
-                  ? 'bg-white text-black border-white font-medium'
-                  : 'bg-transparent border-[#333] text-[#666] hover:text-white hover:border-[#555]'
-                  }`}
-              >
-                <Activity size={12} />
-                Highest Funded
-              </button>
-            </div>
-
-            <div className="text-[10px] text-[#666] font-mono">
-              Sorted by: <span className="text-emerald-500">{sort === 'date' ? 'Announcement Date' : 'Funding Amount'}</span>
-            </div>
-          </div>
-
-          {/* Data Table */}
-          <div className="border border-[#333] rounded-lg bg-black/50 backdrop-blur-sm overflow-hidden min-h-[400px] flex flex-col">
-            {startups === undefined ? (
-              // Loading state
-              <div className="flex flex-col items-center justify-center flex-grow text-[#666] space-y-4">
-                <Loader2 size={24} className="animate-spin text-emerald-500" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">Fetching from database...</p>
-                  <p className="text-xs text-[#555] mt-1">
-                    {timeframe} • {filters.domain || 'All domains'}
-                  </p>
-                </div>
-              </div>
-            ) : filteredData.length === 0 ? (
-              // Empty state - check if scraping
-              <div className="flex flex-col items-center justify-center flex-grow text-[#666] space-y-2">
-                {isScraping ? (
-                  <>
-                    <Loader2 size={24} className="animate-spin text-emerald-500" />
-                    <p className="text-sm font-medium">Scraping data sources...</p>
-                    <p className="text-xs text-[#555]">Fetching from Hacker News, RSS, Reddit, and more</p>
-                  </>
-                ) : (
-                  <>
-                    <Database size={24} className="opacity-50" />
-                    <p className="text-sm font-medium">No startups found</p>
-                    <p className="text-xs text-[#555]">
-                      Try adjusting your filters or date range
-                    </p>
-                    <button
-                      onClick={async () => {
-                        setIsScraping(true);
-                        // Trigger scrapers manually
-                        // Trigger broad intelligent scrape
-                        await fetch('http://localhost:5000/api/scrape', { method: 'POST' });
-                        setIsScraping(false);
-                      }}
-                      className="mt-2 px-4 py-2 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700"
-                    >
-                      Refresh Data
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <>
-                {/* Table */}
-                <div className="overflow-x-auto flex-1">
-                  <table className="w-full text-sm">
-                    <thead className="border-b border-[#1A1A1A] bg-[#0A0A0A]">
-                      <tr>
-                        <th className="p-3 md:p-4 text-left text-[11px] font-semibold text-[#666] uppercase tracking-wider">
-                          Company
-                        </th>
-                        <th className="p-3 md:p-4 text-left text-[11px] font-semibold text-[#666] uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="p-3 md:p-4 text-left text-[11px] font-semibold text-[#666] uppercase tracking-wider">
-                          Funding
-                        </th>
-                        <th className="hidden md:table-cell p-4 text-left text-[11px] font-semibold text-[#666] uppercase tracking-wider">
-                          Description
-                        </th>
-                        <th className="p-3 md:p-4 text-right text-[11px] font-semibold text-[#666] uppercase tracking-wider">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#1A1A1A]">
-                      {paginatedData.map(startup => (
-                        <tr
-                          key={startup.id}
-                          onClick={() => setSelectedStartup(startup)}
-                          className="group hover:bg-[#111]/50 transition-colors cursor-pointer"
-                        >
-                          <td className="p-3 md:p-4 align-top">
-                            <div className="font-medium text-white text-sm mb-1 line-clamp-1 md:line-clamp-none">
-                              {startup.name}
-                            </div>
-                            {startup.website && (
-                              <div className="text-[10px] md:text-[11px] text-[#666] hover:text-white transition-colors truncate max-w-[120px] md:max-w-none">
-                                {(() => {
-                                  try {
-                                    return new URL(startup.website.startsWith('http') ? startup.website : `https://${startup.website}`).hostname.replace('www.', '');
-                                  } catch (e) {
-                                    return startup.website;
-                                  }
-                                })()}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3 md:p-4 align-top">
-                            <div className="flex items-center gap-2 text-[#999] text-xs">
-                              <CalendarDays size={12} className="text-[#555]" />
-                              <span>
-                                {(() => {
-                                  const d = startup.dateAnnouncedISO ? new Date(startup.dateAnnouncedISO) : new Date(startup.dateAnnounced);
-                                  return !isNaN(d.getTime())
-                                    ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                    : startup.dateAnnounced;
-                                })()}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="p-3 md:p-4 align-top">
-                            <div className="flex flex-col items-start gap-1.5">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded border border-[#333] bg-black text-[10px] font-medium text-[#ccc] whitespace-nowrap">
-                                {startup.roundType}
-                              </span>
-                              <span className="text-[10px] text-[#666] font-mono whitespace-nowrap">
-                                {startup.fundingAmount}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="hidden md:table-cell p-4 align-top">
-                            <p className="text-[#888] text-sm leading-relaxed line-clamp-2">
-                              {startup.description}
-                            </p>
-                          </td>
-                          <td className="p-3 md:p-4 align-middle text-right">
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedStartup(startup);
-                              }}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-transparent group-hover:border-[#333] group-hover:bg-black text-[#666] transition-all hover:text-white hover:border-emerald-500 cursor-pointer"
-                            >
-                              <ArrowRight size={14} />
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination */}
-                <div className="border-t border-[#333] bg-[#0A0A0A]/50 p-3 md:p-4 flex items-center justify-between">
-                  <div className="text-[10px] text-[#666] font-medium hidden xs:block">
-                    {filteredData.length > 0
-                      ? `${(currentPage - 1) * ITEMS_PER_PAGE + 1}-${Math.min(currentPage * ITEMS_PER_PAGE, filteredData.length)} / ${filteredData.length}`
-                      : '0 results'}
-                  </div>
-                  <div className="flex items-center gap-1 w-full justify-between xs:w-auto xs:justify-end">
-                    <button
-                      onClick={handlePrevPage}
-                      disabled={currentPage === 1}
-                      className="p-1.5 rounded-md hover:bg-[#222] text-[#666] disabled:opacity-30"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <div className="flex gap-1 px-2">
-                      {getPageNumbers().map(page => (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium ${currentPage === page
-                            ? 'bg-[#222] text-white border border-[#333]'
-                            : 'text-[#666] hover:bg-[#111]'
-                            }`}
-                        >
-                          {page}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={handleNextPage}
-                      disabled={currentPage >= totalPages}
-                      className="p-1.5 rounded-md hover:bg-[#222] text-[#666] disabled:opacity-30"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center text-[10px] text-[#444] pt-4 pb-20 md:pb-4">
-            <div className="flex items-center gap-2">
-              <Database size={10} />
-              <span>Connected to Convex • Real-time data</span>
-            </div>
-            <span>
-              {filteredData.length} results
-              {filters.domain && ` for "${filters.domain}"`}
-            </span>
-          </div>
-        </main>
-
-        {/* Right Sidebar */}
-        <aside
-          className={`
-            fixed inset-0 z-50 bg-black flex flex-col transition-all duration-300
-            md:relative md:inset-auto md:bg-[#050505]/90 md:border-l md:border-[#333]
-            ${isSidebarOpen
-              ? 'translate-x-0 w-full md:w-80 opacity-100'
-              : 'translate-x-full md:translate-x-0 w-full md:w-0 md:opacity-0 md:overflow-hidden'
-            }
-          `}
-        >
-          <div className="p-5 border-b border-[#333] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal size={14} className="text-emerald-500" />
-              <h3 className="text-sm font-semibold text-white">
-                Agent Parameters
-              </h3>
-            </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center">
+            <p className="text-red-400 mb-2">Search failed</p>
+            <p className="text-gray-500 text-sm">{error}</p>
             <button
-              onClick={() => setIsSidebarOpen(false)}
-              className="md:hidden p-2 text-[#666] hover:text-white"
+              onClick={() => handleSearch(query, page)}
+              className="mt-4 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm transition-colors"
             >
-              <X size={20} />
+              Try Again
             </button>
           </div>
-
-          <div className="flex-1 overflow-y-auto p-5 space-y-8">
-            {/* Timeline */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-[#666] uppercase tracking-wider flex items-center gap-2">
-                  <Clock size={12} /> Timeline
-                </label>
-                <span className="text-[10px] text-emerald-500 font-mono">
-                  {TIMELINE_STEPS.find(s => s.id === timeframe)?.label}
-                </span>
+        ) : results.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between mb-6">
+              <div className="text-sm text-gray-400">
+                Found <span className="text-white font-medium">{stats.totalCompanies}</span> startups
+                <span className="mx-2 text-gray-700">•</span>
+                <span className="text-xs text-gray-600">{(stats.latency / 1000).toFixed(2)}s</span>
               </div>
-
-              <div className="flex flex-col gap-1 bg-[#0A0A0A] p-2 rounded-lg border border-[#222]">
-                {TIMELINE_STEPS.map(step => {
-                  const isActive = step.id === timeframe;
-                  return (
-                    <button
-                      key={step.id}
-                      onClick={() => {
-                        setTimeframe(step.id);
-                        setCurrentPage(1);
-                      }}
-                      className={`relative flex items-center px-3 py-2 rounded-md text-xs font-medium transition-all ${isActive
-                        ? 'bg-[#1a1a1a] text-white'
-                        : 'text-[#555] hover:text-[#888] hover:bg-[#111]'
-                        }`}
-                    >
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mr-3 transition-colors ${isActive ? 'bg-emerald-500' : 'bg-[#333]'
-                          }`}
-                      />
-                      {step.label}
-                      {isActive && (
-                        <Activity size={12} className="absolute right-3 text-emerald-500/50" />
-                      )}
-                    </button>
-                  );
-                })}
+              {/* Pagination Controls */}
+              <div className="flex gap-2">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => handleSearch(query, page - 1)}
+                  className="px-3 py-1 text-xs bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-md transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-gray-500 py-1">Page {page} of {stats.totalPages}</span>
+                <button
+                  disabled={page >= stats.totalPages}
+                  onClick={() => handleSearch(query, page + 1)}
+                  className="px-3 py-1 text-xs bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-md transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            {/* Filters */}
-            <div className="space-y-3">
-              <label className="text-[10px] font-bold text-[#666] uppercase tracking-wider">
-                Filters
-              </label>
-
-              {/* Quick Action: View All */}
-              <button
-                onClick={() => {
-                  setFilters(prev => ({ ...prev, domain: '' }));
-                  setCurrentPage(1);
-                  if (window.innerWidth < 768) setIsSidebarOpen(false);
-                }}
-                className={`w-full py-2 text-xs border rounded-md transition-colors flex items-center justify-center gap-2 ${!filters.domain || filters.domain === ''
-                  ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400'
-                  : 'bg-[#111] border-[#333] text-[#888] hover:text-white'
-                  }`}
-              >
-                <Database size={12} />
-                View All Startups
-              </button>
-
-              <div className="space-y-1 pt-2">
-                <span className="text-[10px] text-[#666]">Domain / Industry</span>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="e.g. AI, Fintech, Bio"
-                    value={filters.domain}
-                    onChange={e =>
-                      setFilters(prev => ({
-                        ...prev,
-                        domain: e.target.value,
-                      }))
-                    }
-                    className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-emerald-500/50 pl-8"
-                  />
-                  <Search size={12} className="absolute left-2.5 top-2.5 text-[#444]" />
-                </div>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {results.map((startup) => (
+                <StartupCard
+                  key={startup.id}
+                  startup={startup}
+                  onClick={() => setSelectedStartup(startup)}
+                />
+              ))}
             </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 text-center text-gray-500">
+            <SearchIcon className="w-12 h-12 mb-4 opacity-20" />
+            <p>No startups found. Try a different query.</p>
           </div>
-
-          {/* Action Button */}
-          <div className="p-5 border-t border-[#333] bg-[#0A0A0A]/50">
-            <button
-              onClick={handleRunScan}
-              className="w-full py-2.5 bg-white text-black text-xs font-bold uppercase tracking-wide rounded hover:bg-[#ccc] transition-colors flex items-center justify-center gap-2"
-            >
-              <Filter size={14} />
-              Apply Filters
-            </button>
-          </div>
-        </aside>
-      </div>
+        )}
+      </main>
 
       {/* Modal */}
-      <StartupModal
-        startup={selectedStartup}
-        isOpen={!!selectedStartup}
-        onClose={() => setSelectedStartup(null)}
-      />
+      {selectedStartup && (
+        <StartupModal
+          startup={selectedStartup}
+          onClose={() => setSelectedStartup(null)}
+        />
+      )}
     </div>
   );
 };

@@ -37,7 +37,8 @@ export class SearchOrchestrator {
     async search(
         query: string,
         tier: PricingTier = 'free',
-        page: number = 1
+        page: number = 1,
+        apiKey?: string
     ): Promise<AggregatedSearchResult> {
         const startTime = Date.now();
         const config = PRICING_TIERS[tier];
@@ -107,7 +108,8 @@ export class SearchOrchestrator {
         // Extract company data from top results
         const companies = await this.extractCompanies(
             fundingResults.slice(0, config.maxCompaniesPerSearch * 2), // Get extra for filtering
-            config.maxCompaniesPerSearch
+            config.maxCompaniesPerSearch,
+            apiKey
         );
 
         // Deduplicate companies
@@ -161,9 +163,13 @@ export class SearchOrchestrator {
      */
     private async extractCompanies(
         results: SearchResult[],
-        maxCompanies: number
+        maxCompanies: number,
+        apiKey?: string
     ): Promise<CompanyData[]> {
         const companies: CompanyData[] = [];
+
+        // Import extractor dynamically to avoid circular deps if any
+        const { companyExtractor } = await import('../llm/CompanyExtractor');
 
         // First, try to extract from snippets directly (fast)
         for (const result of results) {
@@ -173,24 +179,13 @@ export class SearchOrchestrator {
                 // Combine title and snippet for extraction
                 const content = `${result.title}\n\n${result.snippet}`;
 
-                // Use existing AI service for extraction
-                const extracted = await validateAndExtractStartup(content);
+                // Use CompanyExtractor with optional BYOK key
+                const extracted = await companyExtractor.extract(content, result.url, apiKey);
 
-                if (extracted.isValid && extracted.data) {
+                if (extracted) {
                     companies.push({
-                        name: extracted.data.name,
-                        description: extracted.data.description,
-                        website: extracted.data.website,
-                        fundingAmount: extracted.data.fundingAmount,
-                        roundType: extracted.data.roundType,
-                        dateAnnounced: extracted.data.dateAnnounced,
-                        dateAnnouncedISO: extracted.data.dateAnnouncedISO,
-                        location: extracted.data.location,
-                        industry: extracted.data.industry,
-                        founders: extracted.data.contactInfo?.founders || [],
-                        tags: extracted.data.tags || [],
+                        ...extracted,
                         source: result.source,
-                        sourceUrl: result.url,
                         confidence: result.relevanceScore || 0.5
                     });
                 }
@@ -214,29 +209,18 @@ export class SearchOrchestrator {
                         if (crawled.error || !crawled.content) continue;
 
                         try {
-                            const extracted = await validateAndExtractStartup(crawled.content);
+                            const extracted = await companyExtractor.extract(crawled.content, crawled.url, apiKey);
 
-                            if (extracted.isValid && extracted.data) {
+                            if (extracted) {
                                 // Check if we already have this company
                                 const exists = companies.some(c =>
-                                    c.name.toLowerCase() === extracted.data!.name.toLowerCase()
+                                    c.name.toLowerCase() === extracted.name.toLowerCase()
                                 );
 
                                 if (!exists) {
                                     companies.push({
-                                        name: extracted.data.name,
-                                        description: extracted.data.description,
-                                        website: extracted.data.website,
-                                        fundingAmount: extracted.data.fundingAmount,
-                                        roundType: extracted.data.roundType,
-                                        dateAnnounced: extracted.data.dateAnnounced,
-                                        dateAnnouncedISO: extracted.data.dateAnnouncedISO,
-                                        location: extracted.data.location,
-                                        industry: extracted.data.industry,
-                                        founders: extracted.data.contactInfo?.founders || [],
-                                        tags: extracted.data.tags || [],
+                                        ...extracted,
                                         source: 'Crawl4AI',
-                                        sourceUrl: crawled.url,
                                         confidence: 0.7
                                     });
                                 }

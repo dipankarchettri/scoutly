@@ -28,6 +28,8 @@ export interface Startup {
   };
   sources: string[];
   tags: string[];
+  confidence?: number; // New field
+  sourceUrl?: string; // New field
 }
 
 export type Timeframe = 'today' | 'yesterday' | '2_days' | 'week' | 'month' | 'quarter';
@@ -48,4 +50,46 @@ export interface SearchState {
   data: Startup[];
   lastUpdated: Date | null;
   queryTime: number;
+}
+
+// New Search Types
+export interface SearchResponse {
+  success: boolean;
+  data: {
+    companies: CompanyData[];
+    pagination: {
+      page: number;
+      totalPages: number;
+      totalCompanies: number;
+      perPage: number;
+    };
+    meta: {
+      query: string;
+      sources: string[];
+      totalLatencyMs: number;
+    };
+  };
+  credits?: {
+    tier: 'free' | 'paid';
+    used: number;
+    remaining: number;
+  };
+}
+
+export interface CompanyData {
+  name: string;
+  description: string;
+  website?: string;
+  fundingAmount?: string;
+  roundType?: string;
+  dateAnnounced?: string;
+  dateAnnouncedISO?: Date;
+  location?: string;
+  industry?: string;
+  founders?: string[];
+  investors?: string[];
+  tags?: string[];
+  source: string;
+  sourceUrl: string;
+  confidence: number;
 }

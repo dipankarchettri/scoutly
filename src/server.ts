@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Startup } from './models/Startup';
-import Logger from '../utils/logger';
+import Logger from './utils/logger';
 import { setupWorker } from './workers/SimpleWorker';
 import { searchOrchestrator } from './services/search';
 import { PRICING_TIERS, PricingTier } from './config/searchConfig';
@@ -60,10 +60,13 @@ app.post('/api/search', async (req, res) => {
         // Validate page
         const pageNum = Math.max(1, Math.min(parseInt(page) || 1, tierConfig.pagesPerSearch));
 
-        Logger.info(`🔍 AI Search: "${query}" (tier: ${validTier}, page: ${pageNum})`);
+        // Valid header for BYOK
+        const apiKey = req.headers['x-llm-api-key'] as string | undefined;
+
+        Logger.info(`🔍 AI Search: "${query}" (tier: ${validTier}, page: ${pageNum}, BYOK: ${!!apiKey})`);
 
         // Execute search
-        const result = await searchOrchestrator.search(query.trim(), validTier, pageNum);
+        const result = await searchOrchestrator.search(query.trim(), validTier, pageNum, apiKey);
 
         res.json({
             success: true,
