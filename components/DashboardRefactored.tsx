@@ -161,6 +161,11 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
         id: item._id || item.id || `startup-${Date.now()}-${Math.random()}`
       }));
       setResults(mappedData);
+      setStats({
+        totalCompanies: mappedData.length,
+        totalPages: 1,
+        latency: 0
+      });
     } catch (err) {
       setError('Failed to load startups for ' + domain);
     } finally {
