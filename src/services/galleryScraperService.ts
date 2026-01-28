@@ -184,6 +184,7 @@ export async function runGalleryScrape() {
 
         const doc = new Startup({
             name: s.name,
+            canonicalName: s.name.toLowerCase().replace(/[^a-z0-9]/g, ''),
             fundingAmount: s.fundingAmount,
             roundType: s.roundType,
             dateAnnounced: s.dateAnnounced,
@@ -191,7 +192,14 @@ export async function runGalleryScrape() {
             investors: s.investors,
             description: s.name, // Placeholder
             tags: ['Technology'], // Placeholder
-            source: 'startups.gallery',
+            sources: [{
+                sourceName: 'startups.gallery',
+                sourceUrl: s.sourceUrl,
+                extractedAt: new Date(),
+                confidence: 0.5,
+                sourceType: 'scraper',
+                notes: 'Initial scrape from list page'
+            }],
             sourceUrl: s.sourceUrl,
             confidenceScore: 0.5 // Initial score
         });
@@ -205,7 +213,10 @@ export async function runGalleryScrape() {
     console.log(`\n--- PHASE 2: DETAIL SCRAPE (Lazy Mode) ---\n`);
 
     // Iterate over just-saved startups
-    const toEnrich = await Startup.find({ source: 'startups.gallery', confidenceScore: { $lt: 0.9 } });
+    const toEnrich = await Startup.find({
+        'sources.sourceName': 'startups.gallery',
+        confidenceScore: { $lt: 0.9 }
+    });
 
     for (const s of toEnrich) {
         const detailUrl = s.sourceUrl;
@@ -226,13 +237,9 @@ export async function runGalleryScrape() {
                 const links = Array.from(document.querySelectorAll('a'));
                 const webLink = links.find(a => a.innerText.toLowerCase().includes('visit website') || a.innerText.toLowerCase().includes('website'));
 
-                // Industry Extraction Strategy:
-                // Look for elements with 'framer-text' class that are short (likely tags)
-                // The user identified specific framer-text elements containing the industry.
-                const potentialTags = Array.from(document.querySelectorAll('[class*="framer-text"]'))
-                    .map(el => (el as HTMLElement).innerText.trim())
-                    .filter(t => t.length > 2 && t.length < 20 && /^[A-Z][a-zA-Z\s]+$/.test(t)) // Capitalized, short
-                    .filter(t => !t.includes('$') && !t.includes('Series') && !t.includes('202') && !t.includes('Jan') && !t.includes('Feb')); // Exclude funding/dates
+                // Industry Extraction: Look for links to /categories/industries/
+                const industryLinks = links.filter(a => a.href.includes('/categories/industries/'));
+                const potentialTags = industryLinks.map(a => a.innerText.trim()).filter(t => t.length > 0);
 
                 return {
                     textDump: text,
@@ -260,9 +267,23 @@ export async function runGalleryScrape() {
             if (strictMatch) {
                 industry = strictMatch;
             } else {
-                // 2. Fallback to plausible tag (not location-like preferably, but good enough)
-                const candidate = data.potentialTags.find(t => t !== s.name && t !== 'San Francisco' && t !== 'New York');
-                if (candidate) industry = candidate;
+                // 2. Fallback to plausible tag (but exclude UI elements)
+                const uiElements = ['Get Updates', 'Startups', 'San Francisco', 'New York', 'London', 'Visit Website'];
+                const candidate = data.potentialTags.find(t => t !== s.name && !uiElements.includes(t));
+                if (candidate) {
+                    industry = candidate;
+                } else {
+                    // 3. Use AI classification when tags are missing/generic
+                    console.log(`   🤖 Using AI to classify: ${s.name}`);
+                    try {
+                        const { classifyIndustry } = await import('./aiService');
+                        industry = await classifyIndustry(s.name, description);
+                        console.log(`   ✨ AI classified as: ${industry}`);
+                    } catch (aiError) {
+                        console.error(`   ❌ AI failed:`, aiError);
+                        industry = 'Technology';
+                    }
+                }
             }
 
             // Update Doc
@@ -276,8 +297,9 @@ export async function runGalleryScrape() {
             await s.save();
             console.log(`   ✅ Enriched: ${s.name}`);
 
-        } catch (err) {
-            console.error(`   ❌ Failed to enrich ${s.name} (URL: ${detailUrl}):`, err.message);
+        } catch (err: any) {
+            console.error(`   ❌ Failed to enrich ${s.name} (URL: ${detailUrl}):`, err);
+            console.error(`   Full error:`, JSON.stringify(err, null, 2));
             // Non-fatal, continue to next
         }
     }

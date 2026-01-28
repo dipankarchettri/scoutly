@@ -9,16 +9,18 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
 const CACHE_PROVIDER = process.env.CACHE_PROVIDER || 'redis';
 
 // Redis/DragonflyDB compatible connection with optimizations
+console.log(`🔌 Connecting to Redis at ${REDIS_HOST}:${REDIS_PORT}`);
 const connection = new Redis({
     host: REDIS_HOST,
     port: REDIS_PORT,
+    family: 4, // Force IPv4
     maxRetriesPerRequest: null, // Critical for BullMQ
     // Universal optimizations (work with both Redis and DragonflyDB)
     enableAutoPipelining: true, // Better throughput
     lazyConnect: true, // Faster startup
     // Performance tuning
-    connectTimeout: 30000,
-    commandTimeout: 5000,
+    connectTimeout: 60000, // Increased timeout
+    commandTimeout: 10000,
 });
 
 connection.on('error', (err) => {

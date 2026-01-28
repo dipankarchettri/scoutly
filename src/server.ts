@@ -1,7 +1,7 @@
+import 'dotenv/config'; // Must be first
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
@@ -15,7 +15,6 @@ import { PRICING_TIERS, PricingTier } from './config/searchConfig';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -177,7 +176,7 @@ app.get('/api/startups', async (req, res, next) => {
                 case 'week': daysBack = 7; break;
                 case 'month': daysBack = 30; break;
                 case 'quarter': daysBack = 90; break;
-                default: daysBack = 30;
+                default: daysBack = 90;
             }
 
             filter.dateAnnouncedISO = {
@@ -220,7 +219,8 @@ app.get('/api/stats', async (req, res) => {
         ]);
 
         res.json({ total, byIndustry });
-    } catch (error) {
+    } catch (error: any) {
+        Logger.error('Stats endpoint error:', error);
         res.status(500).json({ error: 'Stats failed', details: error.message });
     }
 });
@@ -244,6 +244,15 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Start server
-app.listen(PORT, () => {
-    Logger.info(`🚀 Scoutly Server running on http://localhost:${PORT}`);
-});
+// Connect to MongoDB and start server
+mongoose.connect(MONGO_URI)
+    .then(() => {
+        Logger.info('✅ Connected to MongoDB');
+        app.listen(PORT, () => {
+            Logger.info(`🚀 Scoutly Server running on http://localhost:${PORT}`);
+        });
+    })
+    .catch((err) => {
+        Logger.error('❌ Failed to connect to MongoDB:', err);
+        process.exit(1);
+    });

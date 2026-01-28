@@ -75,20 +75,26 @@ except ImportError:
     sys.exit(1)
 `;
 
-            const process = spawn('python3', ['-c', pythonScript, JSON.stringify(urls)]);
+            const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+            const childProcess = spawn(pythonCmd, ['-c', pythonScript, JSON.stringify(urls)]);
 
             let stdout = '';
             let stderr = '';
 
-            process.stdout.on('data', (data) => { stdout += data.toString(); });
-            process.stderr.on('data', (data) => { stderr += data.toString(); });
+            childProcess.stdout.on('data', (data) => { stdout += data.toString(); });
+            childProcess.stderr.on('data', (data) => { stderr += data.toString(); });
+
+            // Handle spawn errors (e.g. python not found)
+            childProcess.on('error', (err) => {
+                reject(new Error(`Failed to spawn python process: ${err.message}`));
+            });
 
             const timeout = setTimeout(() => {
-                process.kill();
+                childProcess.kill();
                 reject(new Error('Crawl4AI timeout'));
             }, this.timeout);
 
-            process.on('close', (code) => {
+            childProcess.on('close', (code) => {
                 clearTimeout(timeout);
                 if (code === 0) {
                     try {

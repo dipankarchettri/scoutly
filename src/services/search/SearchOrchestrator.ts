@@ -1,6 +1,6 @@
 // Search Orchestrator - Main coordinator for startup discovery searches
 
-import { SearxNGSource, BraveSource, Crawl4AISource, ExaSource, TavilySource } from './sources';
+import { SearxNGSource, BraveSource, Crawl4AISource, LocalDbSource, ExaSource, TavilySource } from './sources';
 import { ResultAggregator } from './ResultAggregator';
 import {
     ISearchSource,
@@ -21,6 +21,7 @@ export class SearchOrchestrator {
     constructor() {
         // Initialize all sources
         this.sources = [
+            new LocalDbSource(),
             new SearxNGSource(),
             new BraveSource(),
             new ExaSource(),
@@ -50,10 +51,16 @@ export class SearchOrchestrator {
             s.enabled && config.sources.includes(s.name.toLowerCase().replace(' ', ''))
         );
 
-        // Also include sources that are enabled regardless of tier
+        // Also include sources that are enabled regardless of tier (like Local DB)
         const activeSources = this.sources.filter(s => s.enabled);
 
-        if (activeSources.length === 0) {
+        // Force include Local DB if it's not already in enabledSources
+        const localDbSource = this.sources.find(s => s instanceof LocalDbSource);
+        if (localDbSource && localDbSource.enabled && !enabledSources.includes(localDbSource)) {
+            enabledSources.push(localDbSource);
+        }
+
+        if (enabledSources.length === 0) {
             console.warn('⚠️ No search sources available!');
             return this.emptyResult(query, startTime);
         }
@@ -64,7 +71,7 @@ export class SearchOrchestrator {
         // Execute searches in parallel across all sources and queries
         const searchPromises: Promise<SearchSourceResult>[] = [];
 
-        for (const source of activeSources) {
+        for (const source of enabledSources) {
             for (const searchQuery of searchQueries.slice(0, 2)) { // Limit to 2 queries per source
                 searchPromises.push(
                     source.search(searchQuery).catch(error => ({
@@ -136,7 +143,7 @@ export class SearchOrchestrator {
             },
             meta: {
                 query,
-                sources: activeSources.map(s => s.name),
+                sources: enabledSources.map(s => s.name),
                 successfulSources: Array.from(successfulSources),
                 failedSources: Array.from(failedSources),
                 totalLatencyMs: totalLatency
@@ -176,6 +183,30 @@ export class SearchOrchestrator {
             if (companies.length >= maxCompanies) break;
 
             try {
+                // Optimized: Use full data from Local DB if available
+                if (result.originalData) {
+                    const data = result.originalData;
+                    companies.push({
+                        id: data.id || data._id,
+                        name: data.name,
+                        description: data.description,
+                        website: data.website,
+                        fundingAmount: data.fundingAmount,
+                        roundType: data.roundType,
+                        dateAnnounced: data.dateAnnounced,
+                        dateAnnouncedISO: data.dateAnnouncedISO ? new Date(data.dateAnnouncedISO) : undefined,
+                        location: data.location,
+                        industry: data.industry,
+                        founders: data.contactInfo?.founders || data.founders || [], // Handle nested structure
+                        investors: data.investors || [],
+                        tags: data.tags || [],
+                        source: 'Local DB', // Ensure source is clear
+                        sourceUrl: data.sourceUrl || result.url,
+                        confidence: 1.0 // High confidence for local data
+                    });
+                    continue; // Skip LLM extraction
+                }
+
                 // Combine title and snippet for extraction
                 const content = `${result.title}\n\n${result.snippet}`;
 

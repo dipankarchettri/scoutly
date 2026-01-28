@@ -9,13 +9,13 @@ interface StartupCardProps {
 
 export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) => {
   return (
-    <div 
+    <div
       onClick={() => onClick(startup)}
       className="group bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/50 rounded-xl p-5 transition-all duration-300 cursor-pointer backdrop-blur-sm flex flex-col h-full relative overflow-hidden"
     >
       {/* Decorative gradient glow on hover */}
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-blue-500/0 group-hover:from-emerald-500/10 group-hover:to-blue-500/10 transition-all duration-500" />
-      
+
       <div className="relative z-10 flex flex-col h-full">
         <div className="flex justify-between items-start mb-3">
           <div>
@@ -50,7 +50,7 @@ export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) =>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {startup.contactInfo.founders.slice(0, 2).map((founder, i) => (
-                <span key={i} className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span key={`${founder}-${i}`} className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   {founder}
                 </span>
               ))}
@@ -64,31 +64,31 @@ export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) =>
         )}
 
         <div className="mt-auto space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-medium px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                {startup.roundType}
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs font-medium px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              {startup.roundType}
+            </span>
+            {(startup.investors || []).slice(0, 2).map((inv, i) => (
+              <span key={`${inv}-${i}`} className="text-xs font-medium px-2 py-1 rounded-md bg-slate-700 text-slate-300">
+                {inv}
               </span>
-              {startup.investors.slice(0, 2).map((inv, i) => (
-                <span key={i} className="text-xs font-medium px-2 py-1 rounded-md bg-slate-700 text-slate-300">
-                   {inv}
-                </span>
-              ))}
-              {startup.investors.length > 2 && (
-                 <span className="text-xs font-medium px-2 py-1 rounded-md bg-slate-700 text-slate-300">
-                   +{startup.investors.length - 2} more
-                 </span>
-              )}
+            ))}
+            {(startup.investors?.length || 0) > 2 && (
+              <span className="text-xs font-medium px-2 py-1 rounded-md bg-slate-700 text-slate-300">
+                +{(startup.investors?.length || 0) - 2} more
+              </span>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-slate-700 flex justify-between items-center text-xs text-slate-500">
+            <div className="flex gap-3">
+              {startup.website && <Globe size={14} className="hover:text-white transition-colors" />}
+              {startup.investors?.length > 0 && <Users size={14} className="hover:text-white transition-colors" />}
             </div>
-            
-            <div className="pt-3 border-t border-slate-700 flex justify-between items-center text-xs text-slate-500">
-                <div className="flex gap-3">
-                    {startup.website && <Globe size={14} className="hover:text-white transition-colors"/>}
-                    {startup.investors.length > 0 && <Users size={14} className="hover:text-white transition-colors"/>}
-                </div>
-                <div className="flex items-center gap-1 text-emerald-500 group-hover:translate-x-1 transition-transform">
-                    View Details <ExternalLink size={12} />
-                </div>
+            <div className="flex items-center gap-1 text-emerald-500 group-hover:translate-x-1 transition-transform">
+              View Details <ExternalLink size={12} />
             </div>
+          </div>
         </div>
       </div>
     </div>

@@ -13,6 +13,15 @@ export class ScraperService {
     async runAll() {
         console.log('🚀 Starting All Scrapers (Modular & Config-Driven)...');
 
+        // PRIORITY: Run Gallery Scraper First (High Quality Data)
+        try {
+            // Dynamic import to avoid circular dependencies if any
+            const { runGalleryScrape } = await import('./galleryScraperService');
+            await runGalleryScrape();
+        } catch (e) {
+            console.error('❌ Gallery Scraper Failed:', e);
+        }
+
         const scrapers: IScraper[] = [];
 
         for (const config of SCRAPER_CONFIGS) {
@@ -46,6 +55,8 @@ export class ScraperService {
             }
         }
 
+        console.log(`\n🔍 Found ${scrapers.length} active scrapers.`);
+
         for (const scraper of scrapers) {
             console.log(`\n▶️ Running ${scraper.name}...`);
             try {
@@ -55,6 +66,7 @@ export class ScraperService {
                 console.error(`❌ ${scraper.name} Failed:`, e);
             }
         }
+        console.log('\n🚀 All Scrapers Completed.');
     }
 
 

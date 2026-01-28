@@ -7,6 +7,7 @@ export interface SearchResult {
     source: string;
     timestamp?: Date;
     relevanceScore?: number;
+    originalData?: any; // Holds full object for local results
 }
 
 export interface CompanyData {

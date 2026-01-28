@@ -141,12 +141,58 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
     localStorage.setItem('scoutly_llm_key', key);
   };
 
-  // Initial Search
+  // Initial Load
   useEffect(() => {
     if (initialDomain) {
-      handleSearch(initialDomain, 1);
+      // Use fetchStartups with domain filter for tag clicks from LandingPage
+      loadStartupsByDomain(initialDomain);
+    } else {
+      loadRecentStartups();
     }
   }, [initialDomain]);
+
+  const loadStartupsByDomain = async (domain: string) => {
+    setLoading(true);
+    setQuery(domain);
+    try {
+      const data: any[] = await fetchStartups('quarter', { domain, onlyNew: false });
+      const mappedData: Startup[] = data.map(item => ({
+        ...item,
+        id: item._id || item.id || `startup-${Date.now()}-${Math.random()}`
+      }));
+      setResults(mappedData);
+    } catch (err) {
+      setError('Failed to load startups for ' + domain);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRecentStartups = async () => {
+    setLoading(true);
+    try {
+      // Default to quarter to capture recent data
+      const data: any[] = await fetchStartups('quarter', { onlyNew: false });
+
+      // Map Mongoose _id to id
+      const mappedData: Startup[] = data.map(item => ({
+        ...item,
+        id: item._id || item.id || `startup-${Date.now()}-${Math.random()}`
+      }));
+
+      setResults(mappedData);
+      setStats({
+        totalCompanies: mappedData.length, // Simple count for direct fetch
+        totalPages: 1,
+        latency: 0
+      });
+    } catch (err: any) {
+      console.error("Failed to load recent:", err);
+      setError("Failed to load recent startups");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Search Handler
   const handleSearch = async (searchQuery: string, pageNum: number = 1) => {

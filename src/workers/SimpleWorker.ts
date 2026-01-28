@@ -14,27 +14,36 @@ export const setupWorker = () => {
                     case 'scrape-all':
                         Logger.info('🌱 Running existing scrapers');
                         // Use existing scraper service for now
-                        const scraperService = (await import('../services/scraperService')).default;
-                        await scraperService.runAll();
+                        // Use existing scraper service for now
+                        const { ScraperService } = await import('../services/scraperService');
+                        const service = new ScraperService();
+                        await service.runAll();
                         break;
-                        
+
                     case 'process-validated-startups':
                         Logger.info('🔍 Processing validated startups');
                         // Validation will be integrated in Phase 2.2
                         Logger.info('📊 Would use ValidationEngine');
                         break;
-                        
+
                     case 'ai-deep-search':
                         const { query } = job.data;
                         Logger.info(`🧠 AI search for: ${query}`);
                         // AI search will be implemented in Phase 2.4
                         Logger.info('🔍 Would use AIDeepSearchService');
                         break;
-                        
+
+                    case 'enrich-startup':
+                        const { startupId } = job.data;
+                        Logger.info(`✨ Processing enrichment for: ${startupId}`);
+                        const { EnrichmentService } = await import('../services/enrichmentService');
+                        await EnrichmentService.enrichStartup(startupId);
+                        break;
+
                     default:
                         Logger.warn(`⚠️ Unknown job type: ${job.name}`);
                 }
-                
+
                 Logger.info(`✅ Job ${job.id} completed`);
             } catch (error) {
                 Logger.error(`❌ Job ${job.id} failed`, error);

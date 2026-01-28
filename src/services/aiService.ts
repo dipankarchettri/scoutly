@@ -158,6 +158,55 @@ const callOpenRouterAPI = async (prompt: string, modelName: string = DEFAULT_MOD
     throw new Error("All API retries exhausted.");
 };
 
+// NEW: Classify industry from company name and description using AI
+export const classifyIndustry = async (companyName: string, description: string): Promise<string> => {
+    const prompt = `Classify the industry/domain for this startup.
+
+Company: ${companyName}
+Description: ${description}
+
+Choose ONE most specific industry from this list:
+- AI/ML
+- Fintech  
+- Healthcare
+- Biotech
+- Enterprise SaaS
+- Consumer
+- Developer Tools
+- Robotics
+- Hardware
+- Energy
+- Climate
+- Space
+- Education
+- Security
+
+CRITICAL: Return ONLY the industry name, nothing else. Do NOT return "Startup", "Company", or "Technology".
+
+Industry:`;
+
+    try {
+        const response = await callOpenRouterAPI(prompt);
+        const industry = response.trim();
+
+        // Validate against allowed industries
+        const validIndustries = [
+            'AI/ML', 'Fintech', 'Healthcare', 'Biotech', 'Enterprise SaaS',
+            'Consumer', 'Developer Tools', 'Robotics', 'Hardware',
+            'Energy', 'Climate', 'Space', 'Education', 'Security'
+        ];
+
+        if (validIndustries.some(v => industry.includes(v))) {
+            return industry;
+        }
+
+        console.warn(`AI returned invalid industry: ${industry}, using Technology`);
+        return 'Technology';
+    } catch (error) {
+        console.error('Industry classification error:', error);
+        return 'Technology';
+    }
+};
 
 
 export const validateAndExtractStartup = async (articleText: string, dateContext?: string): Promise<ValidationResult> => {
@@ -172,7 +221,7 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
     3. If valid, extract the structured data.
     4. CRITICAL: Extract FOUNDER NAMES and any CONTACT INFO (email, social links) mentioned. Look for phrases like "started by", "created by", "led by".
     5. CRITICAL: "website" field MUST be the STARTUP'S official website (e.g. "company.com"). DO NOT return the article URL (e.g. "techcrunch.com/..."). If not found, return null.
-    6. "dateAnnounced": "YYYY-MM-DD (Use Context Date: ${dateContext || 'Today'} if not explicitly mentioned in text)"
+    6. "dateAnnounced": "MMM D, YYYY (e.g. Jan 15, 2026). Use Context Date: ${dateContext || 'Today'} if not explicitly mentioned."
     7. DESCRIPTION: Write a clear, 2-sentence description of what the company DOES. Do not just say "AI startup". Say "AI startup building computer vision tools for creators".
     
     Return ONLY valid JSON in this format, with no markdown code blocks:
@@ -181,14 +230,14 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
       "reason": "short explanation",
       "data": {
         "name": "Startup Name",
-        "dateAnnounced": "YYYY-MM-DD",
+        "dateAnnounced": "Jan 1, 2026",
         "description": "High quality description of the product/service",
         "website": "company.com",
         "fundingAmount": "$X Million",
         "roundType": "Seed/Series A",
         "location": "City, Country",
         "founders": ["Name 1", "Name 2"],
-        "industry": "Industry",
+        "industry": "Specific Sector (e.g. Fintech, HealthTech, DevTools, B2B SaaS). NEVER use 'Startup', 'Technology', or 'Company'.",
         "tags": ["tag1", "tag2"]
       }
     }
@@ -205,28 +254,42 @@ export const validateAndExtractStartup = async (articleText: string, dateContext
             const cleanJson = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
             const result = JSON.parse(cleanJson) as ValidationResult;
 
-            // Date Fallback Logic
+            // Date Fallback & Formatting Logic
             if (result.isValid && result.data) {
+                // 1. Ensure ISO Date exists for sorting
                 if (!result.data.dateAnnounced || result.data.dateAnnounced === 'Unknown') {
                     let fallback = dateContext;
                     if (!fallback || fallback === 'Unknown') {
                         fallback = new Date().toISOString().split('T')[0];
                     }
-                    try {
-                        result.data.dateAnnounced = new Date(fallback).toISOString().split('T')[0];
-                    } catch (e) {
-                        result.data.dateAnnounced = new Date().toISOString().split('T')[0];
-                    }
+                    // Set temporary ISO for parsing
+                    result.data.dateAnnounced = fallback;
                 }
 
-                // Populate ISO Date for sorting
-                if (result.data.dateAnnounced) {
-                    try {
-                        result.data.dateAnnouncedISO = new Date(result.data.dateAnnounced);
-                    } catch (e) {
-                        // Fallback to now if parse fails
-                        result.data.dateAnnouncedISO = new Date();
-                    }
+                try {
+                    // Create Date object
+                    const dateObj = new Date(result.data.dateAnnounced!);
+                    if (isNaN(dateObj.getTime())) throw new Error("Invalid Date");
+
+                    // 2. Set ISO field
+                    result.data.dateAnnouncedISO = dateObj;
+
+                    // 3. FORCE format to "MMM D, YYYY" (e.g. Dec 8, 2025)
+                    result.data.dateAnnounced = dateObj.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    });
+
+                } catch (e) {
+                    // Fallback to today if parsing fails
+                    const now = new Date();
+                    result.data.dateAnnouncedISO = now;
+                    result.data.dateAnnounced = now.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    });
                 }
             }
 

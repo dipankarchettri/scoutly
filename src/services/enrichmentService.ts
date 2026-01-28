@@ -2,6 +2,7 @@
 import puppeteer from 'puppeteer';
 import { Startup } from '../models/Startup';
 import { FounderDiscoveryService } from './founderDiscoveryService';
+import { validateAndExtractStartup } from './aiService';
 
 export class EnrichmentService {
 
@@ -19,7 +20,10 @@ export class EnrichmentService {
             const needsWebsite = !s.website || s.website.includes('techcrunch') || s.website.includes('finsmes');
             const needsFounders = !s.contactInfo?.founders || s.contactInfo.founders.length === 0;
 
-            if (!needsWebsite && !needsFounders) {
+            const genericDomains = ['Startup', 'Startups', 'Technology', 'Company', 'Uncategorized', 'Industry'];
+            const needsDomainUpdate = !s.industry || genericDomains.includes(s.industry);
+
+            if (!needsWebsite && !needsFounders && !needsDomainUpdate) {
                 console.log("Startup already enriched.");
                 return;
             }
@@ -75,6 +79,26 @@ export class EnrichmentService {
                     }
                 }
 
+
+                // AI Re-classification for generic domains
+                if (needsDomainUpdate) {
+                    console.log(`🧠 Re-evaluating generic industry: ${startup.industry}`);
+                    try {
+                        const context = `Startup Name: ${startup.name}\nDescription: ${startup.description}\nWebsite: ${startup.website || 'N/A'}`;
+                        const result = await validateAndExtractStartup(context);
+
+                        if (result.isValid && result.data?.industry) {
+                            const newIndustry = result.data.industry;
+                            if (!genericDomains.includes(newIndustry)) {
+                                console.log(`✅ Updated domain from '${startup.industry}' to '${newIndustry}'`);
+                                startup.industry = newIndustry;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`Domain update failed: ${e}`);
+                    }
+                }
+
                 await browser.close();
 
                 if (needsFounders) {
@@ -98,6 +122,10 @@ export class EnrichmentService {
                     } catch (e) {
                         console.warn(`Enhanced founder discovery failed: ${e}`);
                     }
+                }
+
+                if (!s.canonicalName) {
+                    s.canonicalName = s.name.toLowerCase().replace(/[^a-z0-9]/g, '');
                 }
 
                 await startup.save();
