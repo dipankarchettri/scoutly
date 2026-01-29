@@ -16,6 +16,8 @@
     "db:seed": "npx tsx scripts/seed_database.ts"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.60.0",
+    "@clerk/clerk-sdk-node": "^4.13.23",
     "@google/genai": "^1.36.0",
     "@google/generative-ai": "^0.24.1",
     "@mendable/firecrawl-js": "^4.11.0",

@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
 const UserSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true },
+    clerkId: { type: String, required: true, unique: true },
+    email: { type: String, required: true },
     name: { type: String },
     tier: {
         type: String,
@@ -9,11 +10,10 @@ const UserSchema = new mongoose.Schema({
         default: 'free'
     },
     credits: {
-        total: { type: Number, default: 2 },
-        used: { type: Number, default: 0 },
-        lastResetDate: { type: Date, default: Date.now }
+        type: Number,
+        default: 2
     },
-    apiKey: { type: String, unique: true, sparse: true },
+    lastDailyReset: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 }, {
@@ -21,9 +21,9 @@ const UserSchema = new mongoose.Schema({
 });
 
 // Reset credits if needed (middleware)
-UserSchema.pre('save', function (next) {
-    // Logic for auto-resetting credits could go here
-    next();
-});
+// Reset credits if needed (middleware)
+// UserSchema.pre('save', function (next) {
+//     next();
+// });
 
 export const User = mongoose.model('User', UserSchema);

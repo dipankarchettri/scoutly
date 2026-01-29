@@ -8,6 +8,7 @@ import { fetchStartups, searchStartups } from '../src/services/api';
 import { Startup, Timeframe, FilterConfig, SearchResponse } from '../types';
 import { StartupCard } from './StartupCard';
 import { StartupModal } from './StartupModal';
+import { PricingModal } from './PricingModal';
 
 // UI Components (Icons)
 import {
@@ -28,18 +29,22 @@ import {
 const ITEMS_PER_PAGE = 10;
 
 // Credit Display Widget
-const CreditWidget = ({ credits }: { credits?: SearchResponse['credits'] }) => {
+const CreditWidget = ({ credits, onUpgrade }: { credits?: SearchResponse['credits'], onUpgrade: () => void }) => {
   if (!credits) return null;
 
   const isLow = credits.remaining <= 1;
+  const maxCredits = credits.tier === 'paid' ? 50 : 2;
 
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium backdrop-blur-md ${isLow ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
       }`}>
       <Zap className="w-3 h-3" />
-      <span>{credits.remaining} / 2 Credits Free</span>
+      <span>{credits.remaining} / {maxCredits} Credits {credits.tier === 'free' ? 'Free' : 'Pro'}</span>
       {credits.tier === 'free' && (
-        <button className="ml-2 hover:underline text-[10px] uppercase font-bold tracking-wider opacity-80 hover:opacity-100">
+        <button 
+          onClick={onUpgrade}
+          className="ml-2 hover:underline text-[10px] uppercase font-bold tracking-wider opacity-80 hover:opacity-100"
+        >
           Upgrade
         </button>
       )}
@@ -118,11 +123,14 @@ const SettingsModal = ({
   );
 };
 
+import { useAuth } from '@clerk/clerk-react';
+
 export const DashboardRefactored: React.FC<DashboardProps> = ({
   initialDomain,
   onBack,
 }) => {
   // State
+  const { getToken } = useAuth();
   const [query, setQuery] = useState(initialDomain || '');
   const [results, setResults] = useState<Startup[]>([]);
   const [stats, setStats] = useState({ totalCompanies: 0, totalPages: 0, latency: 0 });
@@ -134,6 +142,7 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
 
   // BYOK State
   const [showSettings, setShowSettings] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('scoutly_llm_key') || '');
 
   const handleSaveKey = (key: string) => {
@@ -141,14 +150,36 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
     localStorage.setItem('scoutly_llm_key', key);
   };
 
+  // Refresh User Data
+  const refreshUser = async () => {
+       try {
+          const token = await getToken();
+          if (!token) return;
+          
+          const res = await fetch('http://localhost:5000/api/me', {
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.user) {
+              setCredits({
+                  tier: data.user.tier,
+                  used: 0,
+                  remaining: data.user.credits
+              });
+          }
+      } catch (e) {
+          console.error("Failed to refresh user", e);
+      }
+  };
+
   // Initial Load
   useEffect(() => {
-    if (initialDomain) {
-      // Use fetchStartups with domain filter for tag clicks from LandingPage
-      loadStartupsByDomain(initialDomain);
-    } else {
-      loadRecentStartups();
-    }
+      if (initialDomain) {
+          loadStartupsByDomain(initialDomain);
+      } else {
+          loadRecentStartups();
+      }
+      refreshUser();
   }, [initialDomain]);
 
   const loadStartupsByDomain = async (domain: string) => {
@@ -176,7 +207,6 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
   const loadRecentStartups = async () => {
     setLoading(true);
     try {
-      // Default to quarter to capture recent data
       const data: any[] = await fetchStartups('quarter', { onlyNew: false });
 
       // Map Mongoose _id to id
@@ -207,11 +237,38 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
     setError(null);
 
     try {
-      const response = await searchStartups(searchQuery, pageNum, 'free', apiKey);
+      // Get token for search
+      const token = await getToken();
+      
+      // We need to modify searchStartups to accept token, OR just fetch directly here to ensure auth header is passed correctly
+      // Since searchStartups is imported, I should check if it updates headers. 
+      // If not, I'll do a direct fetch here to be safe and quick.
+      
+      const res = await fetch('http://localhost:5000/api/search', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              ...(apiKey ? { 'x-llm-api-key': apiKey } : {})
+          },
+          body: JSON.stringify({
+              query: searchQuery,
+              page: pageNum,
+              tier: 'free' // Dashboard currently only supports free logic or defaults
+          })
+      });
+      
+      const response = await res.json();
+      
+      if (!response.success && response.error === 'Insufficient credits') {
+          setError(`Insufficient credits. You have ${response.credits} credits remaining.`);
+          setCredits({ tier: 'free', used: 0, remaining: response.credits }); // Update invalid count
+          return;
+      }
 
       if (response.success && response.data) {
         // Map API data to Startup type
-        const mappedStartups: Startup[] = response.data.companies.map((c, index) => ({
+        const mappedStartups: Startup[] = response.data.companies.map((c: any, index: number) => ({
           id: `search-${index}-${Date.now()}`,
           name: c.name,
           fundingAmount: c.fundingAmount || 'Undisclosed',
@@ -238,6 +295,8 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
         });
         setCredits(response.credits);
         setPage(pageNum);
+      } else {
+           setError(response.error || 'Search failed');
       }
     } catch (err: any) {
       setError(err.message || 'Search failed');
@@ -279,7 +338,7 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
               <Database className={`w-5 h-5 ${apiKey ? 'text-purple-400' : 'text-gray-400'}`} />
               {apiKey && <span className="absolute top-1 right-1 w-2 h-2 bg-purple-500 rounded-full"></span>}
             </button>
-            <CreditWidget credits={credits} />
+            <CreditWidget credits={credits} onUpgrade={() => setShowPricing(true)} />
             <div className="h-8 w-[1px] bg-white/10" />
             <form
               onSubmit={(e) => { e.preventDefault(); handleSearch(query, 1); }}
@@ -372,6 +431,17 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
           onClose={() => setSelectedStartup(null)}
         />
       )}
+
+      {/* Pricing Modal */}
+      <PricingModal
+        isOpen={showPricing}
+        onClose={() => setShowPricing(false)}
+        currentTier={credits?.tier || 'free'}
+        onSuccess={() => {
+            refreshUser();
+            // Optional: Show success toast
+        }}
+      />
     </div>
   );
 };

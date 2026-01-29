@@ -10,6 +10,7 @@ import { Startup } from './models/Startup';
 import Logger from './utils/logger';
 import { setupWorker } from './workers/SimpleWorker';
 import { searchOrchestrator } from './services/search';
+import { requireAuth } from './middleware/auth';
 import { PRICING_TIERS, PricingTier } from './config/searchConfig';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,9 +40,18 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // ============================================
+// AUTH ROUTES
+// ============================================
+app.get('/api/me', requireAuth, (req, res) => {
+    res.json({
+        user: req.dbUser
+    });
+});
+
+// ============================================
 // AI-POWERED SEARCH ENDPOINT (New in v2)
 // ============================================
-app.post('/api/search', async (req, res) => {
+app.post('/api/search', requireAuth, async (req, res) => {
     try {
         const { query, page = 1, tier = 'free' } = req.body;
 
@@ -49,6 +59,16 @@ app.post('/api/search', async (req, res) => {
             return res.status(400).json({
                 success: false,
                 error: 'Query is required and must be at least 2 characters'
+            });
+        }
+
+        // 1. Credit Check
+        const user = req.dbUser;
+        if (user.credits <= 0) {
+            return res.status(403).json({
+                success: false,
+                error: 'Insufficient credits',
+                credits: user.credits
             });
         }
 
@@ -62,19 +82,22 @@ app.post('/api/search', async (req, res) => {
         // Valid header for BYOK
         const apiKey = req.headers['x-llm-api-key'] as string | undefined;
 
-        Logger.info(`🔍 AI Search: "${query}" (tier: ${validTier}, page: ${pageNum}, BYOK: ${!!apiKey})`);
+        Logger.info(`🔍 AI Search: "${query}" (tier: ${validTier}, page: ${pageNum}, User: ${user.clerkId})`);
 
         // Execute search
         const result = await searchOrchestrator.search(query.trim(), validTier, pageNum, apiKey);
+
+        // 2. Deduct Credit
+        user.credits -= 1;
+        await user.save();
 
         res.json({
             success: true,
             data: result,
             credits: {
                 tier: validTier,
-                // TODO: Implement actual credit tracking in Phase 3
                 used: 1,
-                remaining: tierConfig.credits - 1
+                remaining: user.credits
             }
         });
 
@@ -88,8 +111,11 @@ app.post('/api/search', async (req, res) => {
     }
 });
 
-// GET version for simple queries
-app.get('/api/search', async (req, res) => {
+// GET version for simple queries protection? 
+// For now leaving GET unprotected as legacy or same auth? 
+// Plan said protect routes. Let's protect GET too for consistency or remove it if unused.
+// I will apply auth to GET as well to prevent bypass.
+app.get('/api/search', requireAuth, async (req, res) => {
     try {
         const { q, query, page = '1', tier = 'free' } = req.query;
         const searchQuery = (q || query) as string;
@@ -100,11 +126,25 @@ app.get('/api/search', async (req, res) => {
                 error: 'Query parameter (q or query) is required'
             });
         }
+        
+        // Credit Check
+        const user = req.dbUser;
+        if (user.credits <= 0) {
+             return res.status(403).json({
+                success: false,
+                error: 'Insufficient credits',
+                credits: user.credits
+            });
+        }
 
         const validTier: PricingTier = tier === 'paid' ? 'paid' : 'free';
         const pageNum = Math.max(1, parseInt(page as string) || 1);
 
         const result = await searchOrchestrator.search(searchQuery.trim(), validTier, pageNum);
+
+        // Deduct Credit
+        user.credits -= 1;
+        await user.save();
 
         res.json({
             success: true,
@@ -157,6 +197,33 @@ app.get('/api/health', async (req, res) => {
             error: error.message,
             timestamp: new Date().toISOString()
         });
+    }
+});
+
+// ============================================
+// PAYMENT/UPGRADE ENDPOINT (Mock)
+// ============================================
+app.post('/api/upgrade', requireAuth, async (req, res) => {
+    try {
+        const user = req.dbUser;
+        
+        // Mock Payment Success
+        user.tier = 'paid';
+        user.credits = 50; // Reset/Upgrade credits immediately
+        await user.save();
+
+        Logger.info(`User ${user.email} upgraded to PRO`);
+
+        res.json({
+            success: true,
+            user: {
+                tier: user.tier,
+                credits: user.credits
+            }
+        });
+    } catch (error: any) {
+        Logger.error('Upgrade failed', error);
+        res.status(500).json({ success: false, error: 'Upgrade failed' });
     }
 });
 

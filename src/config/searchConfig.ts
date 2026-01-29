@@ -14,7 +14,7 @@ export const PRICING_TIERS = {
         name: 'Pro',
         price: 20,
         credits: 50,
-        pagesPerSearch: 50,
+        pagesPerSearch: 5,
         companiesPerPage: 10,
         maxCompaniesPerSearch: 50,
         sources: ['searxng', 'bravesearch', 'crawl4ai', 'exa', 'tavily'] as string[]
