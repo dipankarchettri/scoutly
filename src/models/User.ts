@@ -11,8 +11,12 @@ const UserSchema = new mongoose.Schema({
     },
     credits: {
         type: Number,
-        default: 2
+        default: 50
     },
+    savedStartups: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Startup'
+    }],
     lastDailyReset: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }

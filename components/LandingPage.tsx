@@ -4,7 +4,7 @@ import { gsap } from 'gsap';
 
 
 interface LandingPageProps {
-  onSearch: (domain: string) => void;
+  onSearch: (domain: string, mode: 'agent' | 'database') => void;
   onOpenChat?: () => void;
 }
 
@@ -32,7 +32,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Allow empty search to view all
-    onSearch(input.trim());
+    onSearch(input.trim(), 'agent');
   };
 
   const hasText = input.length > 0;
@@ -288,14 +288,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
           </p>
           <div className="flex flex-wrap justify-center gap-2 items-center">
             <button
-              onClick={() => onSearch('')}
+              onClick={() => onSearch('', 'database')}
               className="px-3 py-1.5 text-[11px] font-medium border-emerald-500/20 bg-emerald-900/10 hover:bg-emerald-900/20 backdrop-blur-sm rounded-lg text-emerald-400 hover:text-emerald-300 transition-all duration-300 flex items-center gap-1.5 border"
             >
               View All
             </button>
             <button
               onClick={() => {
-                onSearch('AI');
+                onSearch('AI', 'agent');
               }}
               className="px-3 py-1.5 text-[11px] font-medium border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 transition-all duration-300 flex items-center gap-1.5"
             >
@@ -305,7 +305,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
               popularTags.map((tag, i) => (
                 <button
                   key={`${tag}-${i}`}
-                  onClick={() => onSearch(tag)}
+                  onClick={() => onSearch(tag, 'agent')}
                   className="px-3 py-1.5 text-[11px] font-medium border border-white/5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 hover:border-white/10 transition-all duration-300"
                 >
                   {tag}
@@ -315,7 +315,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSearch, onOpenChat }
               ['Crypto', 'GenAI', 'SaaS', 'Biotech', 'Marketplaces'].map((tag) => (
                 <button
                   key={tag}
-                  onClick={() => onSearch(tag)}
+                  onClick={() => onSearch(tag, 'agent')}
                   className="px-3 py-1.5 text-[11px] font-medium border border-white/5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg text-zinc-500 hover:text-zinc-300 hover:border-white/10 transition-all duration-300"
                 >
                   {tag}

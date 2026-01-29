@@ -24,21 +24,64 @@ export class CompanyExtractor {
         } else {
             this.provider = 'ollama'; // Default to Ollama
         }
+        console.log(`🧠 CompanyExtractor initialized with provider: ${this.provider}`);
     }
 
     /**
      * Extract company data from raw text using LLM
      */
+    /**
+     * Extract company data from raw text using LLM, falling back to simple extraction
+     */
     async extract(text: string, sourceUrl: string, apiKey?: string): Promise<CompanyData | null> {
-        const prompt = this.buildPrompt(text);
+        // Fallback immediately if text is too short
+        if (!text || text.length < 10) return null;
 
         try {
+            const prompt = this.buildPrompt(text);
             const response = await this.callLLM(prompt, apiKey);
-            return this.parseResponse(response, sourceUrl);
+            const data = this.parseResponse(response, sourceUrl);
+            if (data) return data;
+            
+            // If LLM returned valid structure but indicated "not a startup", return null
+            // But if it failed to parse or whatever, we might want fallback?
+            // Actually parseResponse returns null if !isStartup.
+            // So if null, we might want to try simple extraction if we are desperate?
+            // No, if LLM says no, it's likely no. 
+            // BUT, if callLLM throws error (401 etc), we catch it below.
+            return this.simpleExtract(text, sourceUrl);
+            
         } catch (error) {
-            console.warn('CompanyExtractor failed:', error);
-            return null;
+            console.warn('CompanyExtractor LLM failed, using fallback:', error instanceof Error ? error.message : error);
+            return this.simpleExtract(text, sourceUrl);
         }
+    }
+
+    /**
+     * Simple fallback extraction when LLM is unavailable
+     */
+    private simpleExtract(text: string, sourceUrl: string): CompanyData {
+        // Text is expected to be "Title\n\nSnippet"
+        const parts = text.split('\n\n');
+        const name = parts[0]?.trim() || "Unknown Company";
+        const description = parts.length > 1 ? parts.slice(1).join(' ').trim() : parts[0];
+
+        return {
+            name: name.length > 50 ? name.substring(0, 50) : name, // Truncate if title is huge
+            description: description,
+            website: '', // Hard to extract accurately without LLM
+            fundingAmount: 'Undisclosed',
+            roundType: 'Unknown',
+            dateAnnounced: new Date().toISOString().split('T')[0],
+            location: 'Unknown',
+            industry: 'Technology',
+            founders: [],
+            investors: [],
+            tags: [],
+            source: 'Web Search (Fallback)',
+            sourceUrl: sourceUrl,
+            confidence: 0.3 // Low confidence
+        };
     }
 
     /**
@@ -60,41 +103,39 @@ export class CompanyExtractor {
     }
 
     private buildPrompt(text: string): string {
-        return `You are analyzing text to extract startup funding information.
+        return `
+    You are a venture capital analyst. Analyze the following text and determine if it is about a SPECIFIC startup receiving funding or launching a major product.
+    
+    Rules:
+    1. If it is a generic industry news, opinion piece, or "top 10" list, return isValid: false.
+    2. If it is about a specific startup getting funded, launched, or acquired, return isValid: true.
+    3. If valid, extract the structured data.
+    4. CRITICAL: Extract FOUNDER NAMES and any CONTACT INFO.
+    5. CRITICAL: "website" field MUST be the STARTUP'S official website. If not found, return null.
+    6. DESCRIPTION: Write a clear, 2-sentence description of what the company DOES.
+    
+    Return ONLY valid JSON in this format (no markdown):
+    {
+      "isValid": boolean,
+      "reason": "short explanation",
+      "data": {
+        "name": "Startup Name",
+        "dateAnnounced": "YYYY-MM-DD",
+        "description": "High quality description",
+        "website": "company.com",
+        "fundingAmount": "$X Million",
+        "roundType": "Seed/Series A",
+        "location": "City, Country",
+        "founders": ["Name 1", "Name 2"],
+        "industry": "Specific Sector",
+        "investors": ["Investor 1", "Investor 2"],
+        "tags": ["tag1", "tag2"]
+      },
+      "confidence": 0.0-1.0
+    }
 
-Extract the following data if present:
-- Company name
-- Description (2 sentences max)
-- Funding amount (e.g., "$10M")
-- Round type (Seed, Series A, etc.)
-- Date announced (YYYY-MM-DD)
-- Location
-- Industry
-- Founders (names only)
-- Investors
-
-Return ONLY valid JSON (no markdown):
-{
-  "isStartup": true/false,
-  "company": {
-    "name": "...",
-    "description": "...",
-    "fundingAmount": "...",
-    "roundType": "...",
-    "dateAnnounced": "...",
-    "location": "...",
-    "industry": "...",
-    "founders": ["..."],
-    "investors": ["..."]
-  },
-  "confidence": 0.0-1.0
-}
-
-If this is NOT about a specific startup getting funded, return:
-{"isStartup": false, "confidence": 0}
-
-TEXT:
-${text.substring(0, 8000)}`;
+    TEXT:
+    ${text.substring(0, 15000)}`;
     }
 
     private async callLLM(prompt: string, apiKey?: string): Promise<string> {
@@ -160,11 +201,12 @@ ${text.substring(0, 8000)}`;
 
             const parsed = JSON.parse(cleanJson);
 
-            if (!parsed.isStartup || !parsed.company?.name) {
+            // STRICT VALIDATION
+            if (!parsed.isValid || !parsed.data?.name) {
                 return null;
             }
 
-            const c = parsed.company;
+            const c = parsed.data;
 
             return {
                 name: c.name,
@@ -177,10 +219,10 @@ ${text.substring(0, 8000)}`;
                 industry: c.industry,
                 founders: c.founders || [],
                 investors: c.investors || [],
-                tags: [],
+                tags: c.tags || [],
                 source: 'LLM Extraction',
                 sourceUrl,
-                confidence: parsed.confidence || 0.5
+                confidence: parsed.confidence || 0.8
             };
         } catch (error) {
             console.warn('Failed to parse LLM response:', response.substring(0, 100));

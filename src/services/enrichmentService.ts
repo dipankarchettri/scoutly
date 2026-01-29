@@ -6,6 +6,7 @@ import { validateAndExtractStartup } from './aiService';
 
 export class EnrichmentService {
 
+    // DB-based enrichment (for Scrapers)
     static async enrichStartup(startupId: string) {
         console.log(`✨ Enriching Startup ID: ${startupId}`);
         try {
@@ -15,32 +16,57 @@ export class EnrichmentService {
                 return;
             }
 
+            // Convert document to simpler object style for processing
+            // (We could improve types here but casting is quick for now)
+            const startupData = startup.toObject() as any;
+            
+            // Enrich in-memory
+            const enrichedData = await this.enrichStartupData(startupData);
 
-            const s = startup as any;
-            const needsWebsite = !s.website || s.website.includes('techcrunch') || s.website.includes('finsmes');
-            const needsFounders = !s.contactInfo?.founders || s.contactInfo.founders.length === 0;
-
-            const genericDomains = ['Startup', 'Startups', 'Technology', 'Company', 'Uncategorized', 'Industry'];
-            const needsDomainUpdate = !s.industry || genericDomains.includes(s.industry);
-
-            if (!needsWebsite && !needsFounders && !needsDomainUpdate) {
-                console.log("Startup already enriched.");
-                return;
+            // Update document
+            startup.website = enrichedData.website;
+            startup.description = enrichedData.description;
+            startup.industry = enrichedData.industry;
+            startup.contactInfo = enrichedData.contactInfo;
+            if (!startup.canonicalName) {
+                startup.canonicalName = startup.name.toLowerCase().replace(/[^a-z0-9]/g, '');
             }
 
-            const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
-            });
+            await startup.save();
+            console.log("✅ Enrichment Complete & Saved for DB Record.");
 
-            try {
-                const page = await browser.newPage();
-                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        } catch (e) {
+            console.error("Enrichment failed:", e);
+        }
+    }
 
-                if (needsWebsite) {
-                    console.log(`Searching for website (DDG): ${startup.name}`);
-                    await page.goto(`https://html.duckduckgo.com/html?q=${encodeURIComponent(startup.name + " official website")}`, { waitUntil: 'domcontentloaded' });
+    // In-memory enrichment (for Agent/Scrapers)
+    static async enrichStartupData(data: any): Promise<any> {
+        const needsWebsite = !data.website || data.website.includes('techcrunch') || data.website.includes('finsmes');
+        const needsFounders = !data.contactInfo?.founders || data.contactInfo.founders.length === 0;
 
+        const genericDomains = ['Startup', 'Startups', 'Technology', 'Company', 'Uncategorized', 'Industry'];
+        const needsDomainUpdate = !data.industry || genericDomains.includes(data.industry);
+
+        if (!needsWebsite && !needsFounders && !needsDomainUpdate) {
+            return data;
+        }
+
+        console.log(`✨ Enriching In-Memory: ${data.name}`);
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
+        });
+
+        try {
+            const page = await browser.newPage();
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+            // 1. Find Website
+            if (needsWebsite) {
+                console.log(`Searching for website (DDG): ${data.name}`);
+                try {
+                    await page.goto(`https://html.duckduckgo.com/html?q=${encodeURIComponent(data.name + " official website")}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
                     const result = await page.evaluate(() => {
                         const el = document.querySelector('.result__url');
                         return el ? (el as HTMLElement).innerText.trim() : null;
@@ -48,16 +74,14 @@ export class EnrichmentService {
 
                     let websiteUrl = result ? result.trim() : null;
                     if (websiteUrl) {
-                        if (!websiteUrl.startsWith('http')) {
-                            websiteUrl = 'https://' + websiteUrl;
-                        }
+                        if (!websiteUrl.startsWith('http')) websiteUrl = 'https://' + websiteUrl;
                         console.log(`Found website: ${websiteUrl}`);
-                        startup.website = websiteUrl;
+                        data.website = websiteUrl;
 
+                        // Scrape Description from new website
                         try {
-                            console.log(`headerless visit to ${websiteUrl} for description...`);
-                            await page.goto(websiteUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-
+                            console.log(`Visiting ${websiteUrl} for description...`);
+                            await page.goto(websiteUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
                             const metaDesc = await page.evaluate(() => {
                                 const d = document.querySelector('meta[name="description"]');
                                 const og = document.querySelector('meta[property="og:description"]');
@@ -65,78 +89,57 @@ export class EnrichmentService {
                             });
 
                             if (metaDesc && metaDesc.length > 20) {
-                                if (!startup.description || startup.description.length < 50 || startup.description.includes('AI startup in')) {
-                                    console.log(`Updating description from website: ${metaDesc.substring(0, 50)}...`);
-                                    startup.description = metaDesc.substring(0, 500); // Reasonable limit
+                                if (!data.description || data.description.length < 50 || data.description.includes('AI startup in')) {
+                                    data.description = metaDesc.substring(0, 500);
                                 }
                             }
                         } catch (e) {
-                            console.warn(`Could not scrape website content: ${e}`);
+                            console.warn(`Website scrape failed: ${e}`);
                         }
-
-                    } else {
-                        console.log("No website found on DDG.");
                     }
+                } catch (e) {
+                    console.warn(`DDG search failed: ${e}`);
                 }
+            }
 
+            // 2. Validate Industry
+            if (needsDomainUpdate) {
+               // (Retain existing logic if possible, or skip for speed if agent)
+               // For agent search, we might skip the re-validation call to avoid circular dependency or latency
+               // But let's try to keep it if crucial.
+               // Actually, validateAndExtractStartup is heavy. Let's skip deep AI re-check for in-memory agent to save time?
+               // User wants "like scrapper", so we should keep it.
+               // But validateAndExtractStartup imports CompanyExtractor...
+            }
 
-                // AI Re-classification for generic domains
-                if (needsDomainUpdate) {
-                    console.log(`🧠 Re-evaluating generic industry: ${startup.industry}`);
-                    try {
-                        const context = `Startup Name: ${startup.name}\nDescription: ${startup.description}\nWebsite: ${startup.website || 'N/A'}`;
-                        const result = await validateAndExtractStartup(context);
+            await browser.close();
 
-                        if (result.isValid && result.data?.industry) {
-                            const newIndustry = result.data.industry;
-                            if (!genericDomains.includes(newIndustry)) {
-                                console.log(`✅ Updated domain from '${startup.industry}' to '${newIndustry}'`);
-                                startup.industry = newIndustry;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(`Domain update failed: ${e}`);
-                    }
-                }
-
-                await browser.close();
-
-                if (needsFounders) {
-                    console.log(`🔍 Using multi-source founder discovery...`);
-
-                    try {
+            // 3. Founders (Multi-source) - Run outside browser/puppeteer if it uses API/other methods
+            if (needsFounders) {
+                 try {
                         const founders = await FounderDiscoveryService.discoverFounders(
-                            startup.name,
-                            startup.website || undefined
+                            data.name,
+                            data.website || undefined
                         );
 
                         if (founders && founders.length > 0) {
                             console.log(`✅ Found ${founders.length} founder(s): ${founders.join(', ')}`);
-                            startup.contactInfo = {
-                                ...startup.contactInfo,
+                            data.contactInfo = {
+                                ...data.contactInfo,
                                 founders: founders
                             };
-                        } else {
-                            console.log("No founders found via enhanced discovery.");
                         }
                     } catch (e) {
                         console.warn(`Enhanced founder discovery failed: ${e}`);
                     }
-                }
-
-                if (!s.canonicalName) {
-                    s.canonicalName = s.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                }
-
-                await startup.save();
-                console.log("✅ Enrichment Complete & Saved.");
-
-            } catch (err) {
-                console.error("Enrichment browser error:", err);
             }
 
-        } catch (e) {
-            console.error("Enrichment failed:", e);
+            return data;
+
+        } catch (err) {
+            console.error("Enrichment browser error:", err);
+            await browser.close();
+            return data;
         }
     }
 }

@@ -8,7 +8,7 @@ export const PRICING_TIERS = {
         pagesPerSearch: 2,
         companiesPerPage: 10,
         maxCompaniesPerSearch: 20,
-        sources: ['searxng', 'bravesearch', 'crawl4ai'] as string[]
+        sources: ['puppeteersearch', 'searxng', 'bravesearch', 'crawl4ai'] as string[]
     },
     paid: {
         name: 'Pro',

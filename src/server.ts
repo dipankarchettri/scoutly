@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Startup } from './models/Startup';
+import { User } from './models/User';
 import Logger from './utils/logger';
 import { setupWorker } from './workers/SimpleWorker';
 import { searchOrchestrator } from './services/search';
@@ -87,9 +88,11 @@ app.post('/api/search', requireAuth, async (req, res) => {
         // Execute search
         const result = await searchOrchestrator.search(query.trim(), validTier, pageNum, apiKey);
 
-        // 2. Deduct Credit
+        // 2. Deduct Credit Atomically (Avoids VersionError)
+        await User.findByIdAndUpdate(user._id, { $inc: { credits: -1 } });
+        
+        // Update local user object for response (since we know we just decremented)
         user.credits -= 1;
-        await user.save();
 
         res.json({
             success: true,
@@ -106,8 +109,55 @@ app.post('/api/search', requireAuth, async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Search failed',
-            details: error.message
         });
+    }
+});
+
+// ============================================
+// SAVED STARTUPS ENDPOINTS
+// ============================================
+
+// Toggle Save Startup
+app.post('/api/startups/:id/save', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.dbUser;
+        
+        // Convert to ObjectId for comparison if needed, but Mongoose handles strings well in arrays generally.
+        // However, to be safe and clean:
+        const startupId = new mongoose.Types.ObjectId(id);
+
+        const isSaved = user.savedStartups.some((s: any) => s.toString() === id);
+
+        if (isSaved) {
+            // Unsave
+            user.savedStartups = user.savedStartups.filter((s: any) => s.toString() !== id);
+        } else {
+            // Save
+            user.savedStartups.push(startupId);
+        }
+
+        await user.save();
+        res.json({ success: true, isSaved: !isSaved });
+    } catch (error: any) {
+        Logger.error('Toggle save failed', error);
+        res.status(500).json({ success: false, error: 'Failed to update saved status' });
+    }
+});
+
+// Get Saved Startups
+app.get('/api/me/saved', requireAuth, async (req, res) => {
+    try {
+        const user = await req.dbUser.populate('savedStartups');
+        
+        // Return structured like search results for consistency
+        res.json({
+            success: true,
+            data: user.savedStartups
+        });
+    } catch (error: any) {
+        Logger.error('Fetch saved failed', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch saved startups' });
     }
 });
 
@@ -142,9 +192,9 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
         const result = await searchOrchestrator.search(searchQuery.trim(), validTier, pageNum);
 
-        // Deduct Credit
+        // Deduct Credit Atomically
+        await User.findByIdAndUpdate(user._id, { $inc: { credits: -1 } });
         user.credits -= 1;
-        await user.save();
 
         res.json({
             success: true,

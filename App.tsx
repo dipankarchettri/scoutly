@@ -12,6 +12,7 @@ if (!PUBLISHABLE_KEY) {
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'landing' | 'dashboard' | 'chat'>('landing');
   const [searchIntent, setSearchIntent] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<'agent' | 'database'>('agent');
   const { isSignedIn } = useUser();
 
   // Redirect to dashboard if signed in and on landing page (optional, but good UX)
@@ -22,6 +23,7 @@ const AppContent: React.FC = () => {
     return (
       <Dashboard
         initialDomain={searchIntent}
+        initialMode={searchMode}
         onBack={() => {
           setActiveTab('landing');
           setSearchIntent(null);
@@ -33,8 +35,9 @@ const AppContent: React.FC = () => {
   return (
     <>
       <LandingPage
-        onSearch={(domain) => {
+        onSearch={(domain, mode) => {
           setSearchIntent(domain);
+          setSearchMode(mode);
           if (isSignedIn) {
             setActiveTab('dashboard');
           }

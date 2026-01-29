@@ -1,6 +1,6 @@
 // Search Orchestrator - Main coordinator for startup discovery searches
 
-import { SearxNGSource, BraveSource, Crawl4AISource, LocalDbSource, ExaSource, TavilySource } from './sources';
+import { SearxNGSource, BraveSource, Crawl4AISource, LocalDbSource, ExaSource, TavilySource, PuppeteerSearchSource } from './sources';
 import { ResultAggregator } from './ResultAggregator';
 import {
     ISearchSource,
@@ -22,6 +22,7 @@ export class SearchOrchestrator {
         // Initialize all sources
         this.sources = [
             new LocalDbSource(),
+            new PuppeteerSearchSource(), // Primary Free Fallback
             new SearxNGSource(),
             new BraveSource(),
             new ExaSource(),
@@ -130,11 +131,36 @@ export class SearchOrchestrator {
         const endIndex = Math.min(startIndex + perPage, totalCompanies);
         const paginatedCompanies = dedupedCompanies.slice(startIndex, endIndex);
 
+        // ENRICH IN-MEMORY (No DB Save)
+        // Parallelize enrichment for speed, but limit concurrency if needed?
+        // Puppeteer is heavy, so Promise.all on 10 items might be heavy but usually tolerable on desktop.
+        // Let's do it.
+
+        const { EnrichmentService } = await import('../enrichmentService');
+        
+        console.log(`⚡ Enriching ${paginatedCompanies.length} startups on-the-fly...`);
+        
+        const enrichedCompanies = await Promise.all(
+            paginatedCompanies.map(async (company) => {
+                try {
+                    // Enrich without saving
+                    const enriched = await EnrichmentService.enrichStartupData({ ...company });
+                    return {
+                        ...enriched,
+                        id: company.id || `agent-${Date.now()}-${Math.random()}` 
+                    };
+                } catch (e) {
+                    console.error(`Enrichment failed for ${company.name}`, e);
+                    return company;
+                }
+            })
+        );
+        
         const totalLatency = Date.now() - startTime;
         console.log(`✅ Search completed in ${totalLatency}ms`);
 
         return {
-            companies: paginatedCompanies,
+            companies: enrichedCompanies,
             pagination: {
                 page,
                 totalPages,

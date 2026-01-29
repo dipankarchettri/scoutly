@@ -75,7 +75,6 @@ const StartupSchema = new mongoose.Schema({
 });
 
 // Performance-optimized indexes for query patterns
-StartupSchema.index({ name: 1 }); // Exact match for deduplication
 StartupSchema.index({ website: 1 }); // URL-based lookups
 StartupSchema.index({ fundingAmountNum: -1 }); // Sort by funding
 StartupSchema.index({ dateAnnouncedISO: -1 }); // Time-based queries

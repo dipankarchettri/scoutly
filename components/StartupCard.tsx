@@ -1,13 +1,19 @@
 import React from 'react';
 import { Startup } from '../types';
-import { Globe, DollarSign, Calendar, MapPin, ExternalLink, Users } from 'lucide-react';
+import { Globe, DollarSign, Calendar, MapPin, ExternalLink, Users, Bookmark } from 'lucide-react';
 
 interface StartupCardProps {
   startup: Startup;
   onClick: (startup: Startup) => void;
+  isSaved?: boolean;
+  onSave?: (startup: Startup) => void;
 }
 
-export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) => {
+export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick, isSaved, onSave }) => {
+  const handleSave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onSave) onSave(startup);
+  };
   return (
     <div
       onClick={() => onClick(startup)}
@@ -32,8 +38,20 @@ export const StartupCard: React.FC<StartupCardProps> = ({ startup, onClick }) =>
               </span>
             </div>
           </div>
-          <div className="bg-slate-700/50 px-3 py-1 rounded-full border border-slate-600">
-            <span className="text-emerald-400 font-bold text-sm">{startup.fundingAmount}</span>
+          <div className="flex gap-2 items-center">
+             <button 
+                onClick={handleSave}
+                className={`p-2 rounded-full transition-colors ${
+                  isSaved 
+                    ? 'bg-emerald-500/20 text-emerald-400' 
+                    : 'bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-600'
+                }`}
+             >
+                <Bookmark size={16} fill={isSaved ? "currentColor" : "none"} />
+             </button>
+             <div className="bg-slate-700/50 px-3 py-1 rounded-full border border-slate-600">
+                <span className="text-emerald-400 font-bold text-sm">{startup.fundingAmount}</span>
+             </div>
           </div>
         </div>
 
