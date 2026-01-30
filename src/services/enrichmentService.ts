@@ -19,7 +19,7 @@ export class EnrichmentService {
             // Convert document to simpler object style for processing
             // (We could improve types here but casting is quick for now)
             const startupData = startup.toObject() as any;
-            
+
             // Enrich in-memory
             const enrichedData = await this.enrichStartupData(startupData);
 
@@ -104,19 +104,41 @@ export class EnrichmentService {
 
             // 2. Validate Industry
             if (needsDomainUpdate) {
-               // (Retain existing logic if possible, or skip for speed if agent)
-               // For agent search, we might skip the re-validation call to avoid circular dependency or latency
-               // But let's try to keep it if crucial.
-               // Actually, validateAndExtractStartup is heavy. Let's skip deep AI re-check for in-memory agent to save time?
-               // User wants "like scrapper", so we should keep it.
-               // But validateAndExtractStartup imports CompanyExtractor...
+                // (Retain existing logic if possible, or skip for speed if agent)
+                // For agent search, we might skip the re-validation call to avoid circular dependency or latency
+                // But let's try to keep it if crucial.
+                // Actually, validateAndExtractStartup is heavy. Let's skip deep AI re-check for in-memory agent to save time?
+                // User wants "like scrapper", so we should keep it.
+                // But validateAndExtractStartup imports CompanyExtractor...
             }
 
             await browser.close();
 
             // 3. Founders (Multi-source) - Run outside browser/puppeteer if it uses API/other methods
             if (needsFounders) {
-                 try {
+                try {
+                    // OPTIMIZATION: Check DB first to avoid redundant scraping
+                    let existingFounders: string[] = [];
+                    try {
+                        const existing = await Startup.findOne({
+                            name: { $regex: new RegExp(`^${data.name}$`, 'i') }
+                        }).select('contactInfo.founders');
+
+                        if (existing?.contactInfo?.founders && existing.contactInfo.founders.length > 0) {
+                            existingFounders = existing.contactInfo.founders;
+                            console.log(`✅ Found existing founders in DB for ${data.name}: ${existingFounders.join(', ')}`);
+                        }
+                    } catch (err) {
+                        // Ignore DB error, proceed to scrape
+                    }
+
+                    if (existingFounders.length > 0) {
+                        data.contactInfo = {
+                            ...data.contactInfo,
+                            founders: existingFounders
+                        };
+                    } else {
+                        // Scrape if not in DB
                         const founders = await FounderDiscoveryService.discoverFounders(
                             data.name,
                             data.website || undefined
@@ -129,9 +151,10 @@ export class EnrichmentService {
                                 founders: founders
                             };
                         }
-                    } catch (e) {
-                        console.warn(`Enhanced founder discovery failed: ${e}`);
                     }
+                } catch (e) {
+                    console.warn(`Enhanced founder discovery failed: ${e}`);
+                }
             }
 
             return data;

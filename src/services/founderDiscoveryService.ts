@@ -107,8 +107,8 @@ export class FounderDiscoveryService {
         `;
 
         try {
-            const founders = await extractFounders(prompt);
-            return founders;
+            if (combinedText.trim().length === 0) return [];
+            return await extractFounders(prompt);
         } catch (error) {
             console.error('AI extraction failed:', error);
             return [];

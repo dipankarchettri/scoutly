@@ -328,14 +328,33 @@ export const extractFounders = async (text: string): Promise<string[]> => {
 
     try {
         const aiText = await callOpenRouterAPI(prompt);
+        let parsed: string[] | null = null;
 
-        try {
-            const cleanJson = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
-            return JSON.parse(cleanJson);
-        } catch (parseError) {
-            console.error("Failed to parse founders JSON:", aiText.substring(0, 200));
-            return [];
+        // Clean markdown
+        let cleanJson = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        // 1. Try robust JSON parse
+        const firstOpen = cleanJson.indexOf('[');
+        const lastClose = cleanJson.lastIndexOf(']');
+
+        if (firstOpen !== -1 && lastClose !== -1) {
+            const jsonStr = cleanJson.substring(firstOpen, lastClose + 1);
+            try {
+                parsed = JSON.parse(jsonStr);
+            } catch (e) {
+                // Try single quote fix
+                try { parsed = JSON.parse(jsonStr.replace(/'/g, '"')); } catch (e2) { }
+            }
         }
+
+        // 2. Fallback: Split by newline or comma if it looks like a list
+        if (!parsed && (cleanJson.includes(',') || cleanJson.includes('\n'))) {
+            parsed = cleanJson.split(/,|\n/)
+                .map(name => name.replace(/^[-*•"\[\]]\s*/, '').replace(/["\[\]]/g, '').trim())
+                .filter(name => name.length > 0 && !name.toLowerCase().includes('founder')); // Basic noise filter
+        }
+
+        return Array.isArray(parsed) ? parsed : [];
 
     } catch (error) {
         console.error("OpenRouter founder extraction failed:", error);

@@ -42,7 +42,7 @@ const CreditWidget = ({ credits, onUpgrade }: { credits?: SearchResponse['credit
       <Zap className="w-3 h-3" />
       <span>{credits.remaining} / {maxCredits} Credits {credits.tier === 'free' ? 'Free' : 'Pro'}</span>
       {credits.tier === 'free' && (
-        <button 
+        <button
           onClick={onUpgrade}
           className="ml-2 hover:underline text-[10px] uppercase font-bold tracking-wider opacity-80 hover:opacity-100"
         >
@@ -160,96 +160,96 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
 
   // Refresh User Data
   const refreshUser = async () => {
-       try {
-          const token = await getToken();
-          if (!token) return;
-          
-          const res = await fetch('http://localhost:5000/api/me', {
-              headers: { Authorization: `Bearer ${token}` }
-          });
-          const data = await res.json();
-          if (data.user) {
-              setCredits({
-                  tier: data.user.tier,
-                  used: 0,
-                  remaining: data.user.credits
-              });
-          }
-      } catch (e) {
-          console.error("Failed to refresh user", e);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const res = await fetch('http://localhost:5000/api/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.user) {
+        setCredits({
+          tier: data.user.tier,
+          used: 0,
+          remaining: data.user.credits
+        });
       }
+    } catch (e) {
+      console.error("Failed to refresh user", e);
+    }
   };
 
   // Fetch Saved Startups
   const fetchSaved = async () => {
     try {
-        const token = await getToken();
-        if(!token) return;
-        const res = await fetch('http://localhost:5000/api/me/saved', {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-            // Map Mongoose _id to id
-            const mappedSaved = data.data.map((s: any) => ({
-                ...s,
-                id: s._id || s.id
-            }));
-            setSavedStartups(mappedSaved);
-            setSavedIds(new Set(mappedSaved.map((s: Startup) => s.id)));
-        }
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch('http://localhost:5000/api/me/saved', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Map Mongoose _id to id
+        const mappedSaved = data.data.map((s: any) => ({
+          ...s,
+          id: s._id || s.id
+        }));
+        setSavedStartups(mappedSaved);
+        setSavedIds(new Set(mappedSaved.map((s: Startup) => s.id)));
+      }
     } catch (e) {
-        console.error("Failed to fetch saved", e);
+      console.error("Failed to fetch saved", e);
     }
   };
 
   // Toggle Save
   const handleToggleSave = async (startup: Startup) => {
-     // Optimistic UI Update
-     const isSaved = savedIds.has(startup.id);
-     const newSet = new Set(savedIds);
-     if (isSaved) {
-        newSet.delete(startup.id);
-        setSavedStartups(prev => prev.filter(s => s.id !== startup.id));
-     } else {
-        newSet.add(startup.id);
-        setSavedStartups(prev => [startup, ...prev]);
-     }
-     setSavedIds(newSet);
+    // Optimistic UI Update
+    const isSaved = savedIds.has(startup.id);
+    const newSet = new Set(savedIds);
+    if (isSaved) {
+      newSet.delete(startup.id);
+      setSavedStartups(prev => prev.filter(s => s.id !== startup.id));
+    } else {
+      newSet.add(startup.id);
+      setSavedStartups(prev => [startup, ...prev]);
+    }
+    setSavedIds(newSet);
 
-     try {
-        const token = await getToken();
-        await fetch(`http://localhost:5000/api/startups/${startup.id}/save`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        // Background refresh to ensure consistency
-        fetchSaved(); 
-     } catch (e) {
-        console.error("Save failed", e);
-        // Revert if needed (omitted for brevity)
-     }
+    try {
+      const token = await getToken();
+      await fetch(`http://localhost:5000/api/startups/${startup.id}/save`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Background refresh to ensure consistency
+      fetchSaved();
+    } catch (e) {
+      console.error("Save failed", e);
+      // Revert if needed (omitted for brevity)
+    }
   };
 
   // Initial Load & Mode Handling
   useEffect(() => {
-      const initInfo = async () => {
-          await refreshUser();
-          await fetchSaved();
-      };
-      initInfo();
+    const initInfo = async () => {
+      await refreshUser();
+      await fetchSaved();
+    };
+    initInfo();
 
-      if (initialMode === 'database') {
-          // Check for PRO tier (Client-side check via loadRecentStartups logic or separate)
-          loadRecentStartups();
-          setViewMode('search');
-          
-      } else if (initialMode === 'agent') {
-          if (initialDomain) {
-              handleSearch(initialDomain);
-          }
-          setViewMode('search');
+    if (initialMode === 'database') {
+      // Check for PRO tier (Client-side check via loadRecentStartups logic or separate)
+      loadRecentStartups();
+      setViewMode('search');
+
+    } else if (initialMode === 'agent') {
+      if (initialDomain) {
+        handleSearch(initialDomain);
       }
+      setViewMode('search');
+    }
   }, [initialDomain, initialMode]);
 
   const loadStartupsByDomain = async (domain: string) => {
@@ -279,13 +279,12 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
     try {
       // Check Tier (Client-side check for UX)
       const token = await getToken();
-      const resUser = await fetch('http://localhost:5000/api/me', { headers: { Authorization: `Bearer ${token}` }});
+      const resUser = await fetch('http://localhost:5000/api/me', { headers: { Authorization: `Bearer ${token}` } });
       const dataUser = await resUser.json();
-      
       if (dataUser.user?.tier !== 'paid') {
-          setLoading(false);
-          setShowPricing(true); // Forced Upgrade
-          return;
+        setLoading(false);
+        setShowPricing(true); // Forced Upgrade
+        return;
       }
 
       const data: any[] = await fetchStartups('quarter', { onlyNew: false });
@@ -295,6 +294,11 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
         ...item,
         id: item._id || item.id || `startup-${Date.now()}-${Math.random()}`
       }));
+
+      // Sort: Newest First
+      mappedData.sort((a, b) =>
+        new Date(b.dateAnnounced).getTime() - new Date(a.dateAnnounced).getTime()
+      );
 
       setResults(mappedData);
       setStats({
@@ -320,81 +324,81 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
     try {
       // Get token for search
       const token = await getToken();
-      
+
       // PARALLEL EXECUTION: Agent Search + Database Search
       const [agentRes, dbRes] = await Promise.allSettled([
-          // 1. Agent Search
-          fetch('http://localhost:5000/api/search', {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                  ...(apiKey ? { 'x-llm-api-key': apiKey } : {})
-              },
-              body: JSON.stringify({
-                  query: searchQuery,
-                  page: pageNum,
-                  tier: 'free'
-              })
-          }).then(res => res.json()),
+        // 1. Agent Search
+        fetch('http://localhost:5000/api/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            ...(apiKey ? { 'x-llm-api-key': apiKey } : {})
+          },
+          body: JSON.stringify({
+            query: searchQuery,
+            page: pageNum,
+            tier: 'free'
+          })
+        }).then(res => res.json()),
 
-          // 2. Database Search (Existing startups)
-          fetchStartups('quarter', { domain: searchQuery, onlyNew: false })
+        // 2. Database Search (Existing startups)
+        fetchStartups('quarter', { domain: searchQuery, onlyNew: false })
       ]);
 
       // Process Database Results
       let dbStartups: Startup[] = [];
       if (dbRes.status === 'fulfilled') {
-          dbStartups = dbRes.value.map((item: any) => ({
-             ...item,
-             id: item._id || item.id
-          }));
+        dbStartups = dbRes.value.map((item: any) => ({
+          ...item,
+          id: item._id || item.id
+        }));
       }
 
       // Process Agent Results
       let agentStartups: Startup[] = [];
       let newCredits = credits;
       let searchStats = { total: 0, pages: 1, latency: 0 };
-      
-      if (agentRes.status === 'fulfilled') {
-          const response = agentRes.value;
-          
-          if (!response.success && response.error === 'Insufficient credits') {
-             setError(`Insufficient credits. You have ${response.credits} credits remaining.`);
-             setCredits({ tier: 'free', used: 0, remaining: response.credits });
-             return;
-          }
 
-          if (response.success && response.data) {
-             agentStartups = response.data.companies.map((c: any, index: number) => ({
-                id: `search-${index}-${Date.now()}`,
-                name: c.name,
-                fundingAmount: c.fundingAmount || 'Undisclosed',
-                roundType: c.roundType || 'Unknown',
-                dateAnnounced: c.dateAnnounced || new Date().toISOString(),
-                description: c.description,
-                investors: c.investors || [],
-                founders: c.founders || [],
-                industry: c.industry,
-                website: c.website,
-                location: c.location,
-                sources: [c.source],
-                tags: c.tags || [],
-                confidence: c.confidence,
-                sourceUrl: c.sourceUrl,
-                socialLinks: {}
-            }));
-            newCredits = response.credits;
-            searchStats = {
-                total: response.data.pagination.totalCompanies,
-                pages: response.data.pagination.totalPages,
-                latency: response.data.meta.totalLatencyMs
-            };
-          } else if (agentRes.value.error) {
-              // If agent fails, we might still want to show DB results?
-              // For now let's just log it.
-              console.warn("Agent search warning:", agentRes.value.error);
-          }
+      if (agentRes.status === 'fulfilled') {
+        const response = agentRes.value;
+
+        if (!response.success && response.error === 'Insufficient credits') {
+          setError(`Insufficient credits. You have ${response.credits} credits remaining.`);
+          setCredits({ tier: 'free', used: 0, remaining: response.credits });
+          return;
+        }
+
+        if (response.success && response.data) {
+          agentStartups = response.data.companies.map((c: any, index: number) => ({
+            id: `search-${index}-${Date.now()}`,
+            name: c.name,
+            fundingAmount: c.fundingAmount || 'Undisclosed',
+            roundType: c.roundType || 'Unknown',
+            dateAnnounced: c.dateAnnounced || new Date().toISOString(),
+            description: c.description,
+            investors: c.investors || [],
+            founders: c.founders || [],
+            industry: c.industry,
+            website: c.website,
+            location: c.location,
+            sources: [c.source],
+            tags: c.tags || [],
+            confidence: c.confidence,
+            sourceUrl: c.sourceUrl,
+            socialLinks: {}
+          }));
+          newCredits = response.credits;
+          searchStats = {
+            total: response.data.pagination.totalCompanies,
+            pages: response.data.pagination.totalPages,
+            latency: response.data.meta.totalLatencyMs
+          };
+        } else if (agentRes.value.error) {
+          // If agent fails, we might still want to show DB results?
+          // For now let's just log it.
+          console.warn("Agent search warning:", agentRes.value.error);
+        }
       }
 
       // MERGE & DEDUP
@@ -402,27 +406,27 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
       // Actually, Agent data is "live", DB data is "historical".
       // Let's stack Agent results ON TOP of DB results.
       // Dedup by Name (fuzzy or exact).
-      
+
       const combined = [...agentStartups];
       const agentNames = new Set(agentStartups.map(s => s.name.toLowerCase()));
-      
+
       dbStartups.forEach(s => {
-          if (!agentNames.has(s.name.toLowerCase())) {
-              combined.push(s);
-          }
+        if (!agentNames.has(s.name.toLowerCase())) {
+          combined.push(s);
+        }
       });
 
       if (combined.length === 0) {
-           setError('No results found in Database or Live Search.');
+        setError('No results found in Database or Live Search.');
       } else {
-           setResults(combined);
-           setStats({
-               totalCompanies: combined.length,
-               totalPages: Math.max(searchStats.pages, 1),
-               latency: searchStats.latency
-           });
-           if (newCredits) setCredits(newCredits);
-           setPage(pageNum);
+        setResults(combined);
+        setStats({
+          totalCompanies: combined.length,
+          totalPages: Math.max(searchStats.pages, 1),
+          latency: searchStats.latency
+        });
+        if (newCredits) setCredits(newCredits);
+        setPage(pageNum);
       }
 
     } catch (err: any) {
@@ -467,23 +471,23 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
             </button>
             <CreditWidget credits={credits} onUpgrade={() => setShowPricing(true)} />
             <div className="h-8 w-[1px] bg-white/10" />
-            
+
             {/* View Icons */}
             <div className="flex bg-white/5 rounded-lg p-1 gap-1">
-                <button 
-                   onClick={() => setViewMode('search')}
-                   className={`p-1.5 rounded-md transition-all ${viewMode === 'search' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                   title="Search Results"
-                >
-                    <LayoutGrid size={18} />
-                </button>
-                <button 
-                   onClick={() => setViewMode('saved')}
-                   className={`p-1.5 rounded-md transition-all ${viewMode === 'saved' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
-                   title="Saved Startups"
-                >
-                    <Bookmark size={18} />
-                </button>
+              <button
+                onClick={() => setViewMode('search')}
+                className={`p-1.5 rounded-md transition-all ${viewMode === 'search' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                title="Search Results"
+              >
+                <LayoutGrid size={18} />
+              </button>
+              <button
+                onClick={() => setViewMode('saved')}
+                className={`p-1.5 rounded-md transition-all ${viewMode === 'saved' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
+                title="Saved Startups"
+              >
+                <Bookmark size={18} />
+              </button>
             </div>
 
             <form
@@ -506,30 +510,30 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
         {viewMode === 'saved' ? (
-           <>
-              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-                 <Bookmark className="text-purple-400" /> Saved Discovery
-                 <span className="text-sm font-normal text-gray-500 ml-2">{savedStartups.length} items</span>
-              </h2>
-              {savedStartups.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                      <Bookmark size={48} className="mb-4 opacity-20" />
-                      <p>No saved startups yet.</p>
-                  </div>
-              ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {savedStartups.map((startup) => (
-                        <StartupCard
-                        key={startup.id}
-                        startup={startup}
-                        onClick={() => setSelectedStartup(startup)}
-                        isSaved={true}
-                        onSave={() => handleToggleSave(startup)}
-                        />
-                    ))}
-                    </div>
-              )}
-           </>
+          <>
+            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+              <Bookmark className="text-purple-400" /> Saved Discovery
+              <span className="text-sm font-normal text-gray-500 ml-2">{savedStartups.length} items</span>
+            </h2>
+            {savedStartups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+                <Bookmark size={48} className="mb-4 opacity-20" />
+                <p>No saved startups yet.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {savedStartups.map((startup) => (
+                  <StartupCard
+                    key={startup.id}
+                    startup={startup}
+                    onClick={() => setSelectedStartup(startup)}
+                    isSaved={true}
+                    onSave={() => handleToggleSave(startup)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : loading ? (
           <div className="flex flex-col items-center justify-center h-64 space-y-4">
             <div className="relative">
@@ -582,7 +586,7 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
                 <StartupCard
                   key={startup.id}
                   startup={startup}
-                  onClick={() => setSelectedStartup(startup)}
+                  onClick={(s) => setSelectedStartup(s)}
                   isSaved={savedIds.has(startup.id)}
                   onSave={() => handleToggleSave(startup)}
                 />
@@ -611,8 +615,8 @@ export const DashboardRefactored: React.FC<DashboardProps> = ({
         onClose={() => setShowPricing(false)}
         currentTier={credits?.tier || 'free'}
         onSuccess={() => {
-            refreshUser();
-            // Optional: Show success toast
+          refreshUser();
+          // Optional: Show success toast
         }}
       />
     </div>
